@@ -32,11 +32,12 @@ public class CorsConfig {
         CorsConfiguration corsConfig = new CorsConfiguration();
 
         // Frontend origins allowed to call the API
-        corsConfig.setAllowedOrigins(List.of(
-                "http://localhost:3000",   // React dev server
-                "http://localhost:8090",   // Thymeleaf quickbite-web
-                "http://localhost:4200",   // Angular (if used)
-                "http://127.0.0.1:3000"
+        // Allow the common local dev origins plus any localhost/127.0.0.1 port.
+        // This keeps registration and login working even if the frontend runs on
+        // a different dev port than the one listed in the static config.
+        corsConfig.setAllowedOriginPatterns(List.of(
+                "http://localhost:*",
+                "http://127.0.0.1:*"
         ));
 
         // All standard HTTP methods

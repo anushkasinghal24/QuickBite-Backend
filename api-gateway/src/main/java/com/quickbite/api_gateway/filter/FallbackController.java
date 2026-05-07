@@ -41,47 +41,47 @@ public class FallbackController {
                 )));
     }
 
-    @GetMapping("/auth")
+    @RequestMapping("/auth")
     public Mono<ResponseEntity<Map<String, Object>>> authFallback() {
         return fallback("Auth Service");
     }
 
-    @GetMapping("/restaurant")
+    @RequestMapping("/restaurant")
     public Mono<ResponseEntity<Map<String, Object>>> restaurantFallback() {
         return fallback("Restaurant Service");
     }
 
-    @GetMapping("/menu")
+    @RequestMapping("/menu")
     public Mono<ResponseEntity<Map<String, Object>>> menuFallback() {
         return fallback("Menu Service");
     }
 
-    @GetMapping("/cart")
+    @RequestMapping("/cart")
     public Mono<ResponseEntity<Map<String, Object>>> cartFallback() {
         return fallback("Cart Service");
     }
 
-    @GetMapping("/order")
+    @RequestMapping("/order")
     public Mono<ResponseEntity<Map<String, Object>>> orderFallback() {
         return fallback("Order Service");
     }
 
-    @GetMapping("/payment")
+    @RequestMapping("/payment")
     public Mono<ResponseEntity<Map<String, Object>>> paymentFallback() {
         return fallback("Payment Service");
     }
 
-    @GetMapping("/delivery")
+    @RequestMapping("/delivery")
     public Mono<ResponseEntity<Map<String, Object>>> deliveryFallback() {
         return fallback("Delivery Service");
     }
 
-    @GetMapping("/review")
+    @RequestMapping("/review")
     public Mono<ResponseEntity<Map<String, Object>>> reviewFallback() {
         return fallback("Review Service");
     }
 
-    @GetMapping("/notification")
+    @RequestMapping("/notification")
     public Mono<ResponseEntity<Map<String, Object>>> notificationFallback() {
         return fallback("Notification Service");
     }

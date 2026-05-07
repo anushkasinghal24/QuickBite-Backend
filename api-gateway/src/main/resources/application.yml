@@ -4,8 +4,9 @@ server:
 spring:
   application:
     name: api-gateway
+
   config:
-    import: optional:file:./.env[.properties],optional:file:./api-gateway/.env[.properties]
+    import: optional:file:./.env[.properties]
 
 
 
@@ -100,7 +101,7 @@ spring:
         - id: cart-service
           uri: lb://order-service
           predicates:
-            - Path=/api/v1/cart/**
+            - Path=/api/v1/cart, /api/v1/cart/**
           filters:
             # Cart service controllers are mounted at /cart/**, so strip /api/v1 before forwarding.
             - StripPrefix=2
@@ -118,7 +119,7 @@ spring:
         - id: order-service
           uri: lb://order-service
           predicates:
-            - Path=/api/v1/orders/**
+            - Path=/api/v1/orders, /api/v1/orders/**
           filters:
             # Order service controllers are mounted at /orders/**, so strip /api/v1 before forwarding.
             - StripPrefix=2
@@ -135,7 +136,7 @@ spring:
         - id: payment-service
           uri: lb://payment-service
           predicates:
-            - Path=/api/v1/payments/**
+            - Path=/api/v1/payments, /api/v1/payments/**
           filters:
             - name: CircuitBreaker
               args:
@@ -146,7 +147,7 @@ spring:
         - id: wallet-service
           uri: lb://payment-service
           predicates:
-            - Path=/api/v1/wallet/**
+            - Path=/api/v1/wallet, /api/v1/wallet/**
           filters:
             - name: CircuitBreaker
               args:
@@ -192,7 +193,7 @@ spring:
         - id: notification-service
           uri: lb://payment-service
           predicates:
-            - Path=/api/v1/notifications/**
+            - Path=/api/v1/notifications, /api/v1/notifications/**
           filters:
             - name: CircuitBreaker
               args:
@@ -236,7 +237,7 @@ eureka:
 # In production → store in Config Server / Vault, NOT here
 app:
   jwt:
-    secret: ${APP_JWT_SECRET}
+    secret: ${QUICKBITE_GATEWAY_JWT_SECRET}
 
 # ── Actuator ──────────────────────────────────────────────────────────────────
 management:
