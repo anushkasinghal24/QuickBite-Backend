@@ -37,6 +37,8 @@ public interface RestaurantService {
 
     PagedResponse<RestaurantResponse> getAllApproved(Pageable pageable);
 
+    PagedResponse<RestaurantResponse> getApprovedRestaurants(Pageable pageable);
+
     RestaurantResponse updateRestaurant(Long restaurantId, UpdateRestaurantRequest request, Long ownerId);
 
     // ===== ADMIN OPERATIONS =====

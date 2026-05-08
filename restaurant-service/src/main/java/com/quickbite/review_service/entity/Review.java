@@ -108,7 +108,7 @@ public class Review {
      */
     @Column(name = "is_verified", nullable = false)
     @Builder.Default
-    private Boolean isVerified = false;
+    private Boolean isVerified = true;
 
     /**
      * Flagged for admin moderation.

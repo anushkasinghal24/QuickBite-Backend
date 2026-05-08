@@ -6,31 +6,23 @@ import com.quickbite.restaurant.dto.response.*;
 import com.quickbite.restaurant.entity.MenuCategory;
 import com.quickbite.restaurant.entity.MenuItem;
 import com.quickbite.restaurant.entity.Restaurant;
+import com.quickbite.restaurant.feign.NotificationServiceClient;
 import com.quickbite.restaurant.exception.DuplicateResourceException;
 import com.quickbite.restaurant.exception.ResourceNotFoundException;
 import com.quickbite.restaurant.exception.UnauthorizedException;
 import com.quickbite.restaurant.repository.MenuCategoryRepository;
 import com.quickbite.restaurant.repository.MenuItemRepository;
 import com.quickbite.restaurant.repository.RestaurantRepository;
+import com.quickbite.restaurant.service.RabbitNotificationPublisher;
 import com.quickbite.restaurant.service.RestaurantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
-import org.modelmapper.ModelMapper;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
-
-import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.HashMap;
 import java.util.List;
@@ -53,16 +45,13 @@ public class RestaurantServiceImpl implements RestaurantService {
     private final RestaurantRepository restaurantRepository;
     private final MenuCategoryRepository categoryRepository;
     private final MenuItemRepository itemRepository;
-    private final ModelMapper modelMapper;
-    private final RestTemplate restTemplate;
-
-    @Value("${quickbite.notification.base-url:http://localhost:8084}")
-    private String notificationBaseUrl;
+    private final NotificationServiceClient notificationServiceClient;
+    private final RabbitNotificationPublisher rabbitNotificationPublisher;
 
     // ==================== RESTAURANT CRUD ====================
 
     @Override
-    @CacheEvict(value = "restaurant_list", allEntries = true)
+    @CacheEvict(value = "restaurant_list_v2", allEntries = true)
     public RestaurantResponse registerRestaurant(RegisterRestaurantRequest request, Long ownerId) {
         log.info("Registering restaurant '{}' for ownerId={}", request.getName(), ownerId);
 
@@ -88,6 +77,7 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .imageUrl(request.getImageUrl())
                 .deliveryRadius(request.getDeliveryRadius() != null ? request.getDeliveryRadius() : 5.0)
                 .minOrderAmount(request.getMinOrderAmount() != null ? request.getMinOrderAmount() : 0.0)
+                .costForTwo(request.getCostForTwo() != null ? request.getCostForTwo() : 0.0)
                 .estimatedDeliveryMin(request.getEstimatedDeliveryMin() != null ? request.getEstimatedDeliveryMin() : 30)
                 .openingTime(request.getOpeningTime())
                 .closingTime(request.getClosingTime())
@@ -103,7 +93,7 @@ public class RestaurantServiceImpl implements RestaurantService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "restaurant_detail", key = "#restaurantId")
+    @Cacheable(value = "restaurant_detail_v2", key = "#restaurantId")
     public RestaurantResponse getById(Long restaurantId) {
         Restaurant restaurant = findRestaurantById(restaurantId);
         return mapToResponse(restaurant, true);  // includes full menu
@@ -120,7 +110,7 @@ public class RestaurantServiceImpl implements RestaurantService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "restaurant_list", key = "'cuisine_' + #cuisine + '_' + #pageable.pageNumber")
+    @Cacheable(value = "restaurant_list_v2", key = "'cuisine_' + #cuisine + '_' + #pageable.pageNumber")
     public PagedResponse<RestaurantResponse> getByCuisine(String cuisine, Pageable pageable) {
         Page<Restaurant> page = restaurantRepository
                 .findByCuisineIgnoreCaseAndApprovalStatusAndIsActiveTrue(
@@ -130,7 +120,7 @@ public class RestaurantServiceImpl implements RestaurantService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "restaurant_list", key = "'city_' + #city + '_' + #pageable.pageNumber")
+    @Cacheable(value = "restaurant_list_v2", key = "'city_' + #city + '_' + #pageable.pageNumber")
     public PagedResponse<RestaurantResponse> getByCity(String city, Pageable pageable) {
         Page<Restaurant> page = restaurantRepository
                 .findByCityIgnoreCaseAndApprovalStatusAndIsActiveTrue(
@@ -158,16 +148,25 @@ public class RestaurantServiceImpl implements RestaurantService {
 
     @Override
     @Transactional(readOnly = true)
-    @Cacheable(value = "restaurant_list", key = "'all_' + #pageable.pageNumber")
+    @Cacheable(value = "restaurant_list_v2", key = "'all_' + #pageable.pageNumber")
     public PagedResponse<RestaurantResponse> getAllApproved(Pageable pageable) {
         Page<Restaurant> page = restaurantRepository
-                .findByApprovalStatusAndIsOpenAndIsActiveTrue(
-                        AppConstants.STATUS_APPROVED, true, pageable);
+                .findByApprovalStatusAndIsActiveTrue(
+                        AppConstants.STATUS_APPROVED, pageable);
         return PagedResponse.of(page.map(r -> mapToResponse(r, false)));
     }
 
     @Override
-    @CacheEvict(value = {"restaurant_detail", "restaurant_list"}, allEntries = true)
+    @Transactional(readOnly = true)
+    @Cacheable(value = "restaurant_list_v2", key = "'approved_admin_' + #pageable.pageNumber")
+    public PagedResponse<RestaurantResponse> getApprovedRestaurants(Pageable pageable) {
+        Page<Restaurant> page = restaurantRepository
+                .findByApprovalStatusAndIsActiveTrue(AppConstants.STATUS_APPROVED, pageable);
+        return PagedResponse.of(page.map(r -> mapToResponse(r, false)));
+    }
+
+    @Override
+    @CacheEvict(value = {"restaurant_detail_v2", "restaurant_list_v2"}, allEntries = true)
     public RestaurantResponse updateRestaurant(Long restaurantId,
                                                UpdateRestaurantRequest request,
                                                Long ownerId) {
@@ -189,6 +188,7 @@ public class RestaurantServiceImpl implements RestaurantService {
         if (request.getImageUrl() != null)           restaurant.setImageUrl(request.getImageUrl());
         if (request.getDeliveryRadius() != null)     restaurant.setDeliveryRadius(request.getDeliveryRadius());
         if (request.getMinOrderAmount() != null)     restaurant.setMinOrderAmount(request.getMinOrderAmount());
+        if (request.getCostForTwo() != null)         restaurant.setCostForTwo(request.getCostForTwo());
         if (request.getEstimatedDeliveryMin() != null) restaurant.setEstimatedDeliveryMin(request.getEstimatedDeliveryMin());
         if (request.getOpeningTime() != null)        restaurant.setOpeningTime(request.getOpeningTime());
         if (request.getClosingTime() != null)        restaurant.setClosingTime(request.getClosingTime());
@@ -201,7 +201,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     // ==================== ADMIN OPERATIONS ====================
 
     @Override
-    @CacheEvict(value = {"restaurant_detail", "restaurant_list"}, allEntries = true)
+    @CacheEvict(value = {"restaurant_detail_v2", "restaurant_list_v2"}, allEntries = true)
     public void approveRestaurant(Long restaurantId, ApprovalRequest request) {
         Restaurant restaurant = findRestaurantById(restaurantId);
         String status = request.getStatus().toUpperCase();
@@ -218,26 +218,11 @@ public class RestaurantServiceImpl implements RestaurantService {
 
         // Notify restaurant owner via notification-service (Feign)
         try {
-            Map<String, Object> payload = new HashMap<>();
-            payload.put("recipientId", restaurant.getOwnerId());
-            payload.put("type", "RESTAURANT_" + status);
-            payload.put("title", status.equals(AppConstants.STATUS_APPROVED)
-                    ? "Restaurant Approved!" : "Restaurant Rejected");
-            payload.put("message", status.equals(AppConstants.STATUS_APPROVED)
-                    ? "Your restaurant '" + restaurant.getName() + "' is now live on QuickBite!"
-                    : "Your restaurant was rejected. Reason: " + request.getRejectionReason());
-            payload.put("relatedId", restaurantId);
-
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            String authHeader = currentAuthorizationHeader();
-            if (authHeader != null) {
-                headers.set(HttpHeaders.AUTHORIZATION, authHeader);
+            Map<String, Object> payload = buildApprovalNotificationPayload(
+                    restaurant, restaurantId, status, request.getRejectionReason());
+            if (!rabbitNotificationPublisher.publish(payload)) {
+                notificationServiceClient.sendNotification(payload);
             }
-            restTemplate.postForEntity(
-                    notificationBaseUrl + "/api/v1/notifications/send",
-                    new HttpEntity<>(payload, headers),
-                    String.class);
         } catch (Exception e) {
             log.warn("Failed to send approval notification: {}", e.getMessage());
             // Don't fail the main operation — graceful degradation
@@ -253,7 +238,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @CacheEvict(value = {"restaurant_detail", "restaurant_list"}, allEntries = true)
+    @CacheEvict(value = {"restaurant_detail_v2", "restaurant_list_v2"}, allEntries = true)
     public void deleteRestaurant(Long restaurantId) {
         Restaurant restaurant = findRestaurantById(restaurantId);
         restaurant.setIsActive(false);  // Soft delete
@@ -266,7 +251,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     // ==================== OWNER OPERATIONS ====================
 
     @Override
-    @CacheEvict(value = {"restaurant_detail", "restaurant_list"}, allEntries = true)
+    @CacheEvict(value = {"restaurant_detail_v2", "restaurant_list_v2"}, allEntries = true)
     public void toggleOpen(Long restaurantId, Long ownerId) {
         Restaurant restaurant = findRestaurantById(restaurantId);
         verifyOwnership(restaurant, ownerId);
@@ -284,7 +269,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     // ==================== CALLED BY review-service ====================
 
     @Override
-    @CacheEvict(value = "restaurant_detail", key = "#restaurantId")
+    @CacheEvict(value = "restaurant_detail_v2", key = "#restaurantId")
     public void updateRating(Long restaurantId, UpdateRatingRequest request) {
         findRestaurantById(restaurantId);  // validate exists
         restaurantRepository.updateRating(
@@ -296,7 +281,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     // ==================== MENU CATEGORY ====================
 
     @Override
-    @CacheEvict(value = "restaurant_detail", key = "#restaurantId")
+    @CacheEvict(value = "restaurant_detail_v2", key = "#restaurantId")
     public MenuCategoryResponse addCategory(Long restaurantId,
                                             AddCategoryRequest request,
                                             Long ownerId) {
@@ -324,7 +309,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @CacheEvict(value = "restaurant_detail", key = "#restaurantId")
+    @CacheEvict(value = "restaurant_detail_v2", key = "#restaurantId")
     public MenuCategoryResponse updateCategory(Long restaurantId, Long categoryId,
                                                AddCategoryRequest request, Long ownerId) {
         Restaurant restaurant = findRestaurantById(restaurantId);
@@ -343,7 +328,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @CacheEvict(value = "restaurant_detail", key = "#restaurantId")
+    @CacheEvict(value = "restaurant_detail_v2", key = "#restaurantId")
     public void deleteCategory(Long restaurantId, Long categoryId, Long ownerId) {
         Restaurant restaurant = findRestaurantById(restaurantId);
         verifyOwnership(restaurant, ownerId);
@@ -371,7 +356,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     // ==================== MENU ITEMS ====================
 
     @Override
-    @CacheEvict(value = "restaurant_detail", key = "#restaurantId")
+    @CacheEvict(value = "restaurant_detail_v2", key = "#restaurantId")
     public MenuItemResponse addMenuItem(Long restaurantId, Long categoryId,
                                         AddMenuItemRequest request, Long ownerId) {
         Restaurant restaurant = findRestaurantById(restaurantId);
@@ -402,7 +387,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @CacheEvict(value = "restaurant_detail", key = "#restaurantId")
+    @CacheEvict(value = "restaurant_detail_v2", key = "#restaurantId")
     public MenuItemResponse updateMenuItem(Long restaurantId, Long itemId,
                                            AddMenuItemRequest request, Long ownerId) {
         Restaurant restaurant = findRestaurantById(restaurantId);
@@ -428,7 +413,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @CacheEvict(value = "restaurant_detail", key = "#restaurantId")
+    @CacheEvict(value = "restaurant_detail_v2", key = "#restaurantId")
     public void deleteMenuItem(Long restaurantId, Long itemId, Long ownerId) {
         Restaurant restaurant = findRestaurantById(restaurantId);
         verifyOwnership(restaurant, ownerId);
@@ -445,7 +430,7 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     @Override
-    @CacheEvict(value = "restaurant_detail", key = "#restaurantId")
+    @CacheEvict(value = "restaurant_detail_v2", key = "#restaurantId")
     public void toggleItemAvailability(Long restaurantId, Long itemId, Long ownerId) {
         Restaurant restaurant = findRestaurantById(restaurantId);
         verifyOwnership(restaurant, ownerId);
@@ -510,19 +495,54 @@ public class RestaurantServiceImpl implements RestaurantService {
         }
     }
 
-    private String currentAuthorizationHeader() {
-        ServletRequestAttributes attributes =
-                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        if (attributes == null) {
-            return null;
-        }
-        HttpServletRequest request = attributes.getRequest();
-        return request.getHeader(HttpHeaders.AUTHORIZATION);
+    private Map<String, Object> buildApprovalNotificationPayload(Restaurant restaurant,
+                                                                  Long restaurantId,
+                                                                  String status,
+                                                                  String rejectionReason) {
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("recipientId", restaurant.getOwnerId());
+        payload.put("type", "RESTAURANT_" + status);
+        payload.put("title", status.equals(AppConstants.STATUS_APPROVED)
+                ? "Restaurant Approved!" : "Restaurant Rejected");
+        payload.put("message", status.equals(AppConstants.STATUS_APPROVED)
+                ? "Your restaurant '" + restaurant.getName() + "' is now live on QuickBite!"
+                : "Your restaurant was rejected. Reason: " + rejectionReason);
+        payload.put("relatedId", restaurantId);
+        payload.put("relatedType", "RESTAURANT");
+        payload.put("channel", "APP");
+        return payload;
     }
 
     /** Map Restaurant entity → RestaurantResponse DTO */
     private RestaurantResponse mapToResponse(Restaurant r, boolean includeMenu) {
-        RestaurantResponse response = modelMapper.map(r, RestaurantResponse.class);
+        RestaurantResponse response = RestaurantResponse.builder()
+                .restaurantId(r.getRestaurantId())
+                .ownerId(r.getOwnerId())
+                .name(r.getName())
+                .description(r.getDescription())
+                .cuisine(r.getCuisine())
+                .address(r.getAddress())
+                .city(r.getCity())
+                .state(r.getState())
+                .pincode(r.getPincode())
+                .latitude(r.getLatitude())
+                .longitude(r.getLongitude())
+                .phone(r.getPhone())
+                .email(r.getEmail())
+                .imageUrl(r.getImageUrl())
+                .avgRating(r.getAvgRating())
+                .isOpen(r.getIsOpen())
+                .approvalStatus(r.getApprovalStatus())
+                .approved(AppConstants.STATUS_APPROVED.equalsIgnoreCase(r.getApprovalStatus()))
+                .deliveryRadius(r.getDeliveryRadius())
+                .minOrderAmount(r.getMinOrderAmount())
+                .costForTwo(r.getCostForTwo())
+                .estimatedDeliveryMin(r.getEstimatedDeliveryMin())
+                .openingTime(r.getOpeningTime())
+                .closingTime(r.getClosingTime())
+                .totalReviews(r.getTotalReviews())
+                .createdAt(r.getCreatedAt())
+                .build();
         if (includeMenu) {
             List<MenuCategoryResponse> categories =
                 categoryRepository
@@ -536,6 +556,9 @@ public class RestaurantServiceImpl implements RestaurantService {
     }
 
     private MenuCategoryResponse mapCategoryToResponse(MenuCategory c, boolean includeItems) {
+        List<MenuItemResponse> items = itemRepository.findByMenuCategory_CategoryIdAndIsActiveTrue(c.getCategoryId())
+                .stream().map(this::mapItemToResponse).collect(Collectors.toList());
+
         MenuCategoryResponse response = MenuCategoryResponse.builder()
                 .categoryId(c.getCategoryId())
                 .restaurantId(c.getRestaurant() != null ? c.getRestaurant().getRestaurantId() : null)
@@ -544,16 +567,14 @@ public class RestaurantServiceImpl implements RestaurantService {
                 .imageUrl(c.getImageUrl())
                 .displayOrder(c.getDisplayOrder())
                 .isActive(c.getIsActive())
+                .itemCount(items.size())
                 .build();
-
-        if (includeItems) {
-            List<MenuItemResponse> items =
-                itemRepository.findByMenuCategory_CategoryIdAndIsActiveTrue(c.getCategoryId())
-                    .stream().map(this::mapItemToResponse).collect(Collectors.toList());
-            response.setMenuItems(items);
-        }
-        return response;
-    }
+ 
+         if (includeItems) {
+             response.setMenuItems(items);
+         }
+         return response;
+     }
 
     private MenuItemResponse mapItemToResponse(MenuItem i) {
         return MenuItemResponse.builder()

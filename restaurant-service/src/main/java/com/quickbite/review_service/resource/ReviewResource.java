@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -69,7 +70,7 @@ public class ReviewResource {
             @Valid @RequestBody AddReviewRequest request,
             Authentication authentication) {
 
-        Integer customerId = (Integer) authentication.getPrincipal();
+        Integer customerId = toIntId(authentication.getPrincipal());
         log.info("POST /api/v1/reviews — customerId={}, orderId={}", customerId, request.getOrderId());
 
         ReviewResponse response = reviewService.addReview(customerId, request);
@@ -174,7 +175,7 @@ public class ReviewResource {
             @Valid @RequestBody UpdateReviewRequest request,
             Authentication authentication) {
 
-        Integer customerId = (Integer) authentication.getPrincipal();
+        Integer customerId = toIntId(authentication.getPrincipal());
         log.info("PUT /api/v1/reviews/{} — customerId={}", reviewId, customerId);
 
         ReviewResponse response = reviewService.updateReview(reviewId, customerId, request);
@@ -189,9 +190,17 @@ public class ReviewResource {
     @PreAuthorize("hasAnyRole('ADMIN', 'CUSTOMER')")
     @Operation(summary = "Delete review (ADMIN moderation or CUSTOMER own)",
                security = @SecurityRequirement(name = "bearerAuth"))
-    public ResponseEntity<ApiResponse<Void>> deleteReview(@PathVariable Integer reviewId) {
+    public ResponseEntity<ApiResponse<Void>> deleteReview(
+            @PathVariable Integer reviewId,
+            Authentication authentication) {
         log.info("DELETE /api/v1/reviews/{}", reviewId);
-        reviewService.deleteReview(reviewId);
+        Integer actorId = toIntId(authentication.getPrincipal());
+        String actorRole = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .findFirst()
+                .orElse("ROLE_CUSTOMER")
+                .replace("ROLE_", "");
+        reviewService.deleteReview(reviewId, actorId, actorRole);
         return ResponseEntity.ok(ApiResponse.success("Review deleted"));
     }
 
@@ -280,5 +289,19 @@ public class ReviewResource {
 
         RatingAverageResponse summary = reviewService.getAgentRatingSummary(agentId);
         return ResponseEntity.ok(ApiResponse.success("Agent rating summary", summary));
+    }
+
+    private Integer toIntId(Object principal) {
+        if (principal instanceof Integer i) {
+            return i;
+        }
+        if (principal instanceof Long l) {
+            return l.intValue();
+        }
+        if (principal instanceof Number n) {
+            return n.intValue();
+        }
+        throw new IllegalStateException("Unsupported authentication principal type: "
+                + (principal == null ? "null" : principal.getClass().getName()));
     }
 }

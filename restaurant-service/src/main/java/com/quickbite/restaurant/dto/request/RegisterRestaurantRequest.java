@@ -55,6 +55,9 @@ public class RegisterRestaurantRequest {
     @Min(value = 0)
     private Double minOrderAmount = 0.0;
 
+    @Min(value = 0)
+    private Double costForTwo = 0.0;
+
     @Min(value = 10) @Max(value = 120)
     private Integer estimatedDeliveryMin = 30;
 

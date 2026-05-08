@@ -35,6 +35,7 @@ public class UpdateRestaurantRequest {
 
     @Min(1) private Double deliveryRadius;
     @Min(0) private Double minOrderAmount;
+    @Min(0) private Double costForTwo;
 
     @Min(10) @Max(120)
     private Integer estimatedDeliveryMin;

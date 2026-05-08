@@ -89,6 +89,7 @@ public interface RestaurantRepository extends JpaRepository<Restaurant, Long> {
     // ===== ADMIN QUERIES =====
     Page<Restaurant> findByApprovalStatus(String approvalStatus, Pageable pageable);
     List<Restaurant> findByApprovalStatus(String approvalStatus);
+    Page<Restaurant> findByApprovalStatusAndIsActiveTrue(String approvalStatus, Pageable pageable);
     long countByApprovalStatus(String approvalStatus);
     long countByCityIgnoreCase(String city);
 

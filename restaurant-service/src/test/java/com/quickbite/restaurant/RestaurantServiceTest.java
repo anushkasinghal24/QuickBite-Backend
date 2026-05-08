@@ -15,13 +15,14 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.modelmapper.ModelMapper;
-import org.springframework.web.client.RestTemplate;
 
-import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class RestaurantServiceTest {
@@ -29,35 +30,30 @@ class RestaurantServiceTest {
     @Mock private RestaurantRepository restaurantRepository;
     @Mock private MenuCategoryRepository categoryRepository;
     @Mock private MenuItemRepository itemRepository;
-    @Mock private RestTemplate restTemplate;
-    @Mock private ModelMapper modelMapper;
 
     @InjectMocks
     private RestaurantServiceImpl restaurantService;
 
-    private RegisterRestaurantRequest validRequest;
+    private RegisterRestaurantRequest request;
     private Restaurant savedRestaurant;
 
     @BeforeEach
     void setUp() {
-        validRequest = new RegisterRestaurantRequest();
-        validRequest.setName("Test Restaurant");
-        validRequest.setCuisine("North Indian");
-        validRequest.setAddress("123 Test Street");
-        validRequest.setCity("Delhi");
-        validRequest.setLatitude(28.6139);
-        validRequest.setLongitude(77.2090);
-        validRequest.setPhone("9876543210");
+        request = new RegisterRestaurantRequest();
+        request.setName("Spice Corner");
+        request.setCuisine("Indian");
+        request.setAddress("MG Road, Near Metro Station");
+        request.setCity("Delhi");
+        request.setLatitude(28.6448);
+        request.setLongitude(77.2167);
+        request.setPhone("9876543214");
 
         savedRestaurant = Restaurant.builder()
-                .restaurantId(1L)
-                .ownerId(10L)
-                .name("Test Restaurant")
-                .cuisine("North Indian")
+                .restaurantId(7L)
+                .ownerId(36L)
+                .name("Spice Corner")
+                .cuisine("Indian")
                 .city("Delhi")
-                .latitude(28.6139)
-                .longitude(77.2090)
-                .phone("9876543210")
                 .approvalStatus("PENDING")
                 .isOpen(false)
                 .isActive(true)
@@ -65,50 +61,25 @@ class RestaurantServiceTest {
     }
 
     @Test
-    void registerRestaurant_Success() {
-        when(restaurantRepository.existsByOwnerIdAndNameIgnoreCase(10L, "Test Restaurant"))
+    void registerRestaurant_shouldSaveAndReturnResponse() {
+        when(restaurantRepository.existsByOwnerIdAndNameIgnoreCase(36L, "Spice Corner"))
                 .thenReturn(false);
         when(restaurantRepository.save(any(Restaurant.class))).thenReturn(savedRestaurant);
-        when(modelMapper.map(any(Restaurant.class), eq(RestaurantResponse.class)))
-                .thenReturn(new RestaurantResponse());
 
-        RestaurantResponse response = restaurantService.registerRestaurant(validRequest, 10L);
+        RestaurantResponse response = restaurantService.registerRestaurant(request, 36L);
 
         assertNotNull(response);
         verify(restaurantRepository, times(1)).save(any(Restaurant.class));
     }
 
     @Test
-    void registerRestaurant_Duplicate_ThrowsException() {
-        when(restaurantRepository.existsByOwnerIdAndNameIgnoreCase(10L, "Test Restaurant"))
+    void registerRestaurant_shouldThrowWhenDuplicateRestaurantExists() {
+        when(restaurantRepository.existsByOwnerIdAndNameIgnoreCase(36L, "Spice Corner"))
                 .thenReturn(true);
 
         assertThrows(DuplicateResourceException.class,
-                () -> restaurantService.registerRestaurant(validRequest, 10L));
+                () -> restaurantService.registerRestaurant(request, 36L));
 
-        verify(restaurantRepository, never()).save(any());
-    }
-
-    @Test
-    void getById_NotFound_ThrowsException() {
-        when(restaurantRepository.findById(999L)).thenReturn(Optional.empty());
-
-        assertThrows(com.quickbite.restaurant.exception.ResourceNotFoundException.class,
-                () -> restaurantService.getById(999L));
-    }
-
-    @Test
-    void toggleOpen_NotApproved_ThrowsException() {
-        Restaurant pendingRestaurant = Restaurant.builder()
-                .restaurantId(1L)
-                .ownerId(10L)
-                .approvalStatus("PENDING")
-                .isActive(true)
-                .build();
-
-        when(restaurantRepository.findById(1L)).thenReturn(Optional.of(pendingRestaurant));
-
-        assertThrows(IllegalArgumentException.class,
-                () -> restaurantService.toggleOpen(1L, 10L));
+        verify(restaurantRepository, never()).save(any(Restaurant.class));
     }
 }

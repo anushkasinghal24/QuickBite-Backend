@@ -31,8 +31,10 @@ public class RestaurantResponse {
     private Double avgRating;
     private Boolean isOpen;
     private String approvalStatus;
+    private Boolean approved;
     private Double deliveryRadius;
     private Double minOrderAmount;
+    private Double costForTwo;
     private Integer estimatedDeliveryMin;
     private String openingTime;
     private String closingTime;

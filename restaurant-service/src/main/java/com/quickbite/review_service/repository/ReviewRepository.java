@@ -2,9 +2,11 @@ package com.quickbite.review_service.repository;
 
 import com.quickbite.review_service.entity.Review;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
@@ -57,6 +59,12 @@ public interface ReviewRepository extends JpaRepository<Review, Integer> {
 
     /** Admin: get unverified reviews */
     List<Review> findByIsVerifiedFalse();
+
+    /** Normalize legacy data so admin dashboard does not show stale pending reviews */
+    @Modifying
+    @Transactional
+    @Query("update Review r set r.isVerified = true where r.isVerified = false")
+    int markAllAsVerified();
 
     // ── Analytics queries ─────────────────────────────────────────────────────
 

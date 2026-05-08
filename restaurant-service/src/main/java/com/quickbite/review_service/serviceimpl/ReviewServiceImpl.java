@@ -4,25 +4,24 @@ import com.quickbite.review_service.dto.request.*;
 import com.quickbite.review_service.dto.response.*;
 import com.quickbite.review_service.entity.Review;
 import com.quickbite.review_service.exception.*;
+import com.quickbite.review_service.feign.OrderServiceClient;
+import com.quickbite.restaurant.feign.DeliveryServiceClient;
+import com.quickbite.restaurant.feign.NotificationServiceClient;
+import com.quickbite.restaurant.service.RabbitNotificationPublisher;
 import com.quickbite.review_service.repository.ReviewRepository;
 import com.quickbite.review_service.service.ReviewService;
 import com.quickbite.restaurant.service.RestaurantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.web.client.RestTemplate;
-import org.springframework.web.context.request.RequestContextHolder;
-import org.springframework.web.context.request.ServletRequestAttributes;
-
-import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import java.time.LocalDate;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -41,18 +40,14 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-    @Transactional
 public class ReviewServiceImpl implements ReviewService {
 
     private final ReviewRepository reviewRepository;
+    private final OrderServiceClient orderServiceClient;
     private final RestaurantService restaurantService;
-    private final RestTemplate restTemplate;
-
-    @Value("${quickbite.delivery.base-url:http://localhost:8087}")
-    private String deliveryBaseUrl;
-
-    @Value("${quickbite.notification.base-url:http://localhost:8084}")
-    private String notificationBaseUrl;
+    private final DeliveryServiceClient deliveryServiceClient;
+    private final NotificationServiceClient notificationServiceClient;
+    private final RabbitNotificationPublisher rabbitNotificationPublisher;
 
     // ═══════════════════════════════════════════════════════════════════
     // 1. ADD REVIEW
@@ -62,6 +57,9 @@ public class ReviewServiceImpl implements ReviewService {
     public ReviewResponse addReview(Integer customerId, AddReviewRequest request) {
         log.info("Adding review by customerId={} for orderId={}", customerId, request.getOrderId());
 
+        OrderDetailsDTO order = fetchOrderOrThrow(request.getOrderId());
+        validateReviewRequest(customerId, request, order);
+
         // ── Rule 1: One review per order ─────────────────────────────
         if (reviewRepository.existsByOrderId(request.getOrderId())) {
             throw new DuplicateReviewException(
@@ -69,7 +67,7 @@ public class ReviewServiceImpl implements ReviewService {
                 ". Only one review is allowed per order.");
         }
 
-        // ── Rule 2: Validate deliveryRating only if agentId present ──
+        // ── Rule 2: Require delivery rating when the request explicitly includes an agent ──
         if (request.getAgentId() != null && request.getDeliveryRating() == null) {
             throw new InvalidReviewException(
                 "Delivery rating is required when agentId is provided.");
@@ -80,12 +78,12 @@ public class ReviewServiceImpl implements ReviewService {
                 .orderId(request.getOrderId())
                 .customerId(customerId)
                 .restaurantId(request.getRestaurantId())
-                .agentId(request.getAgentId())
+                .agentId(order.getDeliveryAgentId())
                 .foodRating(request.getFoodRating())
                 .deliveryRating(request.getDeliveryRating())
                 .comment(request.getComment())
                 .reviewDate(LocalDate.now())
-                .isVerified(false)   // Requires admin verification
+                .isVerified(true)
                 .isFlagged(false)
                 .build();
 
@@ -96,8 +94,8 @@ public class ReviewServiceImpl implements ReviewService {
         pushFoodRatingToRestaurant(request.getRestaurantId());
 
         // ── Push updated avgDeliveryRating to delivery-service ────────
-        if (request.getAgentId() != null) {
-            pushDeliveryRatingToAgent(request.getAgentId());
+        if (order.getDeliveryAgentId() != null) {
+            pushDeliveryRatingToAgent(order.getDeliveryAgentId());
         }
 
         // ── Notify restaurant owner about new review ──────────────────
@@ -188,8 +186,10 @@ public class ReviewServiceImpl implements ReviewService {
         if (request.getDeliveryRating() != null) review.setDeliveryRating(request.getDeliveryRating());
         if (request.getComment() != null)        review.setComment(request.getComment());
 
-        // Mark as needing re-verification after edit
-        review.setIsVerified(false);
+        // Auto-verify updated reviews as well
+        review.setIsVerified(true);
+        review.setIsFlagged(false);
+        review.setFlagReason(null);
 
         Review saved = reviewRepository.save(review);
         log.info("Review updated: reviewId={}", saved.getReviewId());
@@ -208,8 +208,13 @@ public class ReviewServiceImpl implements ReviewService {
     // ═══════════════════════════════════════════════════════════════════
 
     @Override
-    public void deleteReview(Integer reviewId) {
+    public void deleteReview(Integer reviewId, Integer actorId, String actorRole) {
         Review review = findById(reviewId);
+
+        boolean isAdmin = "ADMIN".equalsIgnoreCase(actorRole);
+        if (!isAdmin && !Objects.equals(review.getCustomerId(), actorId)) {
+            throw new UnauthorizedReviewException("You can only delete your own review.");
+        }
 
         Integer restaurantId = review.getRestaurantId();
         Integer agentId = review.getAgentId();
@@ -269,8 +274,8 @@ public class ReviewServiceImpl implements ReviewService {
 
         review.setIsFlagged(true);
         review.setFlagReason(request.getReason());
-        // Temporarily unverify until admin reviews it
-        review.setIsVerified(false);
+        // Keep the review verified so the admin panel does not show a pending state
+        review.setIsVerified(true);
 
         Review saved = reviewRepository.save(review);
         log.info("Review flagged: reviewId={}, reason={}", reviewId, request.getReason());
@@ -359,6 +364,41 @@ public class ReviewServiceImpl implements ReviewService {
                     "Review not found with reviewId: " + reviewId));
     }
 
+    private OrderDetailsDTO fetchOrderOrThrow(Integer orderId) {
+        try {
+            ApiResponse<OrderDetailsDTO> response = orderServiceClient.getOrderById(orderId);
+            if (response == null || !response.isSuccess() || response.getData() == null) {
+                throw new ReviewNotFoundException("Order not found: " + orderId);
+            }
+            return response.getData();
+        } catch (ReviewNotFoundException ex) {
+            throw ex;
+        } catch (Exception ex) {
+            throw new InvalidReviewException("Could not validate order before submitting review.");
+        }
+    }
+
+    private void validateReviewRequest(Integer customerId, AddReviewRequest request, OrderDetailsDTO order) {
+        if (!Objects.equals(order.getCustomerId(), customerId)) {
+            throw new UnauthorizedReviewException("You can only review your own order.");
+        }
+        if (!Objects.equals(order.getRestaurantId(), request.getRestaurantId())) {
+            throw new InvalidReviewException("Restaurant does not match this order.");
+        }
+        if (!"DELIVERED".equalsIgnoreCase(order.getOrderStatus())) {
+            throw new InvalidReviewException("Reviews can only be submitted after the order is delivered.");
+        }
+        if (request.getAgentId() != null && !Objects.equals(request.getAgentId(), order.getDeliveryAgentId())) {
+            throw new InvalidReviewException("Delivery agent does not match this order.");
+        }
+        if (order.getDeliveryAgentId() != null && request.getDeliveryRating() == null) {
+            throw new InvalidReviewException("Delivery rating is required for delivered orders with an assigned agent.");
+        }
+        if (request.getDeliveryRating() != null && order.getDeliveryAgentId() == null) {
+            throw new InvalidReviewException("Delivery rating cannot be provided when no delivery agent was assigned.");
+        }
+    }
+
     /**
      * Recompute avgFoodRating and push to restaurant-service.
      * PDF: "Average ratings computed and pushed back to Restaurant-Service."
@@ -387,16 +427,7 @@ public class ReviewServiceImpl implements ReviewService {
     private void pushDeliveryRatingToAgent(Integer agentId) {
         try {
             Double avg = getAvgDeliveryRating(agentId);
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            String authHeader = currentAuthorizationHeader();
-            if (authHeader != null) {
-                headers.set(HttpHeaders.AUTHORIZATION, authHeader);
-            }
-            restTemplate.put(
-                    deliveryBaseUrl + "/api/v1/agents/{agentId}/rating",
-                    new HttpEntity<>(Map.of("avgRating", avg), headers),
-                    agentId);
+            deliveryServiceClient.updateAgentRating(agentId, Map.of("avgRating", avg));
             log.info("Pushed avgDeliveryRating={} to delivery-service for agentId={}",
                     avg, agentId);
         } catch (Exception e) {
@@ -406,37 +437,21 @@ public class ReviewServiceImpl implements ReviewService {
 
     /** Send notification via notification-service */
     private void sendNotification(String type, Integer recipientId,
-                                   String title, String message, Integer relatedId) {
+                                  String title, String message, Integer relatedId) {
         try {
-            HttpHeaders headers = new HttpHeaders();
-            headers.setContentType(MediaType.APPLICATION_JSON);
-            String authHeader = currentAuthorizationHeader();
-            if (authHeader != null) {
-                headers.set(HttpHeaders.AUTHORIZATION, authHeader);
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("type", type);
+            payload.put("recipientId", recipientId);
+            payload.put("title", title);
+            payload.put("message", message);
+            payload.put("relatedId", relatedId);
+            payload.put("relatedType", "REVIEW");
+            payload.put("channel", "APP");
+            if (!rabbitNotificationPublisher.publish(payload)) {
+                notificationServiceClient.sendNotification(payload);
             }
-            restTemplate.postForEntity(
-                    notificationBaseUrl + "/api/v1/notifications/send",
-                    new HttpEntity<>(Map.of(
-                "type",        type,
-                "recipientId", recipientId,
-                "title",       title,
-                "message",     message,
-                "relatedId",   relatedId,
-                "relatedType", "REVIEW"
-            ), headers),
-                    String.class);
         } catch (Exception e) {
             log.warn("Notification failed (non-critical): {}", e.getMessage());
         }
-    }
-
-    private String currentAuthorizationHeader() {
-        ServletRequestAttributes attributes =
-                (ServletRequestAttributes) RequestContextHolder.getRequestAttributes();
-        if (attributes == null) {
-            return null;
-        }
-        HttpServletRequest request = attributes.getRequest();
-        return request.getHeader(HttpHeaders.AUTHORIZATION);
     }
 }

@@ -16,7 +16,7 @@ import java.util.List;
  * PDF Section 4.2 ke anusar:
  * restaurantId, ownerId, name, description, cuisine, address, city,
  * latitude, longitude, phone, avgRating, isOpen, isApproved,
- * deliveryRadius, minOrderAmount, estimatedDeliveryMin
+ * deliveryRadius, minOrderAmount, costForTwo, estimatedDeliveryMin
  *
  * Serializable isliye hai kyunki Redis caching mein save hoga.
  *
@@ -29,7 +29,7 @@ import java.util.List;
         @Index(name = "idx_owner_id",    columnList = "owner_id"),
         @Index(name = "idx_city",        columnList = "city"),
         @Index(name = "idx_cuisine",     columnList = "cuisine"),
-        @Index(name = "idx_is_approved", columnList = "is_approved"),
+        @Index(name = "idx_is_approved", columnList = "approval_status"),
         @Index(name = "idx_lat_lng",     columnList = "latitude, longitude")
 })
 @Data
@@ -119,6 +119,14 @@ public class Restaurant implements Serializable {
     @Column(name = "min_order_amount")
     @Builder.Default
     private Double minOrderAmount = 0.0;
+
+    /**
+     * Estimated cost for two people.
+     * Used by customer-facing filters and list cards.
+     */
+    @Column(name = "cost_for_two")
+    @Builder.Default
+    private Double costForTwo = 0.0;
 
     /** Estimated delivery time in minutes shown on UI */
     @Column(name = "estimated_delivery_min")

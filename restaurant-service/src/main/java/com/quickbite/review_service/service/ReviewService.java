@@ -45,10 +45,10 @@ public interface ReviewService {
     /**
      * Delete review.
      * ADMIN can delete any review (moderation).
-     * CUSTOMER can delete their own review.
+     * CUSTOMER can delete their own review only.
      * PDF Section 2.5: "Remove fraudulent or inappropriate content."
      */
-    void deleteReview(Integer reviewId);
+    void deleteReview(Integer reviewId, Integer actorId, String actorRole);
 
     /**
      * Get average food rating for a restaurant.

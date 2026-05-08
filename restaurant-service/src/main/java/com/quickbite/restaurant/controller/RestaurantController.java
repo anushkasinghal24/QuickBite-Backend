@@ -252,6 +252,23 @@ public class RestaurantController {
     }
 
     /**
+     * GET /api/v1/restaurants/admin/approved
+     * Get all approved restaurants, including closed ones â€” ROLE_ADMIN
+     */
+    @GetMapping("/admin/approved")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Get approved restaurants for admin", security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<PagedResponse<RestaurantResponse>>> getApprovedForAdmin(
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size) {
+
+        Pageable pageable = PageRequest.of(page, size, Sort.by("createdAt").descending());
+        return ResponseEntity.ok(
+                ApiResponse.success("Approved restaurants",
+                        restaurantService.getApprovedRestaurants(pageable)));
+    }
+
+    /**
      * DELETE /api/v1/restaurants/{id}
      * Soft-delete restaurant — ROLE_ADMIN
      */
