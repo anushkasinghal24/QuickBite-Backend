@@ -1,0 +1,117 @@
+server:
+  port: 8081                          # auth-service runs on 8081
+
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  cloud:
+    config:
+      enabled: false
+  application:
+    name: auth-service                # Eureka registration name
+
+  # ── Database ────────────────────────────────────────────────────────────────
+  datasource:
+    url: ${QUICKBITE_AUTH_DB_URL:jdbc:mysql://localhost:3306/quickbite_auth?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${QUICKBITE_AUTH_DB_USERNAME:root}
+    password: ${QUICKBITE_AUTH_DB_PASSWORD:}
+    driver-class-name: ${QUICKBITE_AUTH_DB_DRIVER:com.mysql.cj.jdbc.Driver}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+      idle-timeout: 600000
+      max-lifetime: 1800000
+
+  jpa:
+    hibernate:
+      ddl-auto: update                # 'create' on first run, then 'update'
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: ${QUICKBITE_AUTH_HIBERNATE_DIALECT:org.hibernate.dialect.MySQLDialect}
+
+  sql:
+    init:
+      mode: never
+
+  # ── OAuth2 ─────────────────────────────────────────────────────────────────
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: ${QUICKBITE_GOOGLE_CLIENT_ID:}
+            client-secret: ${QUICKBITE_GOOGLE_CLIENT_SECRET:}
+            scope:
+              - email
+              - profile
+            redirect-uri: "${QUICKBITE_AUTH_GOOGLE_REDIRECT_URI:http://localhost:8081/login/oauth2/code/{registrationId}}"
+
+          github:
+            client-id: ${QUICKBITE_GITHUB_CLIENT_ID:}
+            client-secret: ${QUICKBITE_GITHUB_CLIENT_SECRET:}
+            scope:
+              - user:email
+              - read:user
+            redirect-uri: "${QUICKBITE_AUTH_GITHUB_REDIRECT_URI:http://localhost:8081/login/oauth2/code/{registrationId}}"
+
+
+
+  # ── Config Server ──────────────────────────────────────────────────────────
+  # Uncomment when Config Server is set up
+  # config:
+  #   import: optional:configserver:http://localhost:8888
+
+# ── Eureka Client ─────────────────────────────────────────────────────────────
+eureka:
+  client:
+    service-url:
+      defaultZone: ${QUICKBITE_EUREKA_URL:http://localhost:8761/eureka/}     # ← Your Eureka Server
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+# ── JWT Configuration ─────────────────────────────────────────────────────────
+app:
+  jwt:
+    # Generate with: openssl rand -base64 64
+    # This MUST be the same secret across all services if they validate locally.
+    # But since we use centralized validation (POST /validate-token), each
+    # service doesn't need this — only auth-service needs it.
+    secret: ${QUICKBITE_AUTH_JWT_SECRET:}
+
+    # Access token: 24 hours
+    expiration-ms: 86400000
+
+    # Refresh token: 7 days
+    refresh-expiration-ms: 604800000
+  frontend-url: ${QUICKBITE_FRONTEND_URL:http://localhost:4200}
+
+# ── Actuator (for Eureka health check) ───────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics
+  endpoint:
+    health:
+      show-details: always
+
+# ── Swagger / OpenAPI ─────────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    com.quickbite.auth: DEBUG
+    org.springframework.security: INFO
+    org.hibernate.SQL: DEBUG
