@@ -87,6 +87,11 @@ public interface DeliveryService {
     AgentResponse completeDelivery(Integer agentId, Integer orderId);
 
     /**
+     * Get completed delivery history for the agent.
+     */
+    List<DeliveryHistoryResponse> getDeliveryHistory(Integer agentId);
+
+    /**
      * Update agent's average rating.
      * Called by review-service after customer submits delivery rating.
      * PDF Section 4.8: "Average ratings pushed back to Delivery-Agent-Service."

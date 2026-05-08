@@ -7,6 +7,8 @@ import com.quickbite.delivery_service.feign.OrderServiceClient;
 import com.quickbite.delivery_service.feign.NotificationServiceClient;
 import com.quickbite.delivery_service.feign.RestaurantServiceClient;
 import com.quickbite.delivery_service.repository.DeliveryRepository;
+import com.quickbite.delivery_service.repository.DeliveryHistoryRepository;
+import com.quickbite.delivery_service.service.RabbitNotificationPublisher;
 import com.quickbite.delivery_service.serviceimpl.DeliveryServiceImpl;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -30,6 +32,8 @@ class DeliveryServiceTest {
     @Mock private NotificationServiceClient notificationServiceClient;
     @Mock private OrderServiceClient orderServiceClient;
     @Mock private RestaurantServiceClient restaurantServiceClient;
+    @Mock private RabbitNotificationPublisher rabbitNotificationPublisher;
+    @Mock private DeliveryHistoryRepository deliveryHistoryRepository;
 
     @InjectMocks private DeliveryServiceImpl deliveryService;
 
@@ -75,7 +79,6 @@ class DeliveryServiceTest {
     void registerAgent_newUser_success() {
         when(deliveryRepository.existsByUserId(103)).thenReturn(false);
         when(deliveryRepository.save(any(DeliveryAgent.class))).thenReturn(pendingAgent);
-        doNothing().when(notificationServiceClient).sendNotification(anyMap());
 
         RegisterAgentRequest request = new RegisterAgentRequest(
             "New Agent", "9000000001",
@@ -175,7 +178,6 @@ class DeliveryServiceTest {
     void verifyAgent_verifyAction_setsVerifiedStatus() {
         when(deliveryRepository.findByAgentId(2)).thenReturn(Optional.of(pendingAgent));
         when(deliveryRepository.save(any())).thenAnswer(i -> i.getArgument(0));
-        doNothing().when(notificationServiceClient).sendNotification(anyMap());
 
         VerifyAgentRequest request = new VerifyAgentRequest("VERIFY", null);
         AgentResponse response = deliveryService.verifyAgent(2, request);
@@ -184,12 +186,37 @@ class DeliveryServiceTest {
         assertTrue(response.getIsVerified());
     }
 
+    @Test
+    void verifyAgent_rejectAction_setsRejectedStatusAndRemarks() {
+        when(deliveryRepository.findByAgentId(2)).thenReturn(Optional.of(pendingAgent));
+        when(deliveryRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        VerifyAgentRequest request = new VerifyAgentRequest("REJECT", "Documents missing");
+        AgentResponse response = deliveryService.verifyAgent(2, request);
+
+        assertEquals("REJECTED", response.getStatus());
+        assertFalse(response.getIsVerified());
+        assertEquals("Documents missing", response.getAdminRemarks());
+    }
+
+    @Test
+    void verifyAgent_suspendAction_setsSuspendedStatus() {
+        when(deliveryRepository.findByAgentId(2)).thenReturn(Optional.of(pendingAgent));
+        when(deliveryRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+
+        VerifyAgentRequest request = new VerifyAgentRequest("SUSPEND", "Policy violation");
+        AgentResponse response = deliveryService.verifyAgent(2, request);
+
+        assertEquals("SUSPENDED", response.getStatus());
+        assertFalse(response.getIsVerified());
+        assertEquals("Policy violation", response.getAdminRemarks());
+    }
+
     // ── Test: Assign order to eligible agent ──────────────────────────
     @Test
     void assignOrder_eligibleAgent_success() {
         when(deliveryRepository.findByAgentId(1)).thenReturn(Optional.of(verifiedAgent));
         when(deliveryRepository.save(any())).thenAnswer(i -> i.getArgument(0));
-        doNothing().when(notificationServiceClient).sendNotification(anyMap());
 
         AssignOrderRequest request = new AssignOrderRequest(55, 28.6, 77.2);
         AgentResponse response = deliveryService.assignOrder(1, request);
@@ -216,8 +243,37 @@ class DeliveryServiceTest {
         double prevEarnings = verifiedAgent.getTotalEarnings();
 
         when(deliveryRepository.findByAgentId(1)).thenReturn(Optional.of(verifiedAgent));
-        when(deliveryRepository.save(any())).thenAnswer(i -> i.getArgument(0));
-        doNothing().when(notificationServiceClient).sendNotification(anyMap());
+        when(deliveryHistoryRepository.existsByAgentIdAndOrderId(1, 55)).thenReturn(false);
+        when(orderServiceClient.getOrderById(55)).thenReturn(ApiResponse.success(
+                "Order fetched",
+                OrderDetailsDTO.builder()
+                        .orderId(55)
+                        .customerId(9)
+                        .customerName("Aman Verma")
+                        .restaurantId(301)
+                        .restaurantName("QuickBite Downtown")
+                        .deliveryAddress("221B Baker Street")
+                        .orderStatus("PICKED_UP")
+                        .orderDate(LocalDateTime.now().minusMinutes(30))
+                        .finalAmount(248.0)
+                        .modeOfPayment("CARD")
+                        .itemCount(2)
+                        .build()
+        ));
+        when(restaurantServiceClient.getRestaurantById(301L)).thenReturn(ApiResponse.success(
+                "Restaurant fetched",
+                RestaurantDetailsDTO.builder()
+                        .restaurantId(301L)
+                        .name("QuickBite Downtown")
+                        .address("12 Main Street")
+                        .latitude(28.6139)
+                        .longitude(77.2090)
+                        .isOpen(true)
+                        .approvalStatus("APPROVED")
+                        .build()
+        ));
+        lenient().when(deliveryRepository.save(any())).thenAnswer(i -> i.getArgument(0));
+        lenient().when(deliveryHistoryRepository.save(any())).thenAnswer(i -> i.getArgument(0));
 
         AgentResponse response = deliveryService.completeDelivery(1, 55);
 
@@ -225,6 +281,7 @@ class DeliveryServiceTest {
         assertEquals(prevDeliveries + 1, response.getTotalDeliveries());
         assertEquals(prevEarnings + 50.0, response.getTotalEarnings(), 0.01);
         verify(orderServiceClient).updateOrderStatus(55, Map.of("status", "DELIVERED"));
+        verify(deliveryHistoryRepository).save(any());
     }
 
     @Test
@@ -268,6 +325,16 @@ class DeliveryServiceTest {
     void pickUpOrder_validAssignment_updatesOrderStatus() {
         verifiedAgent.setCurrentOrderId(55);
         when(deliveryRepository.findByAgentId(1)).thenReturn(Optional.of(verifiedAgent));
+        when(orderServiceClient.getOrderById(55)).thenReturn(ApiResponse.success(
+                "Order fetched",
+                OrderDetailsDTO.builder()
+                        .orderId(55)
+                        .orderStatus("READY_TO_PICK_UP")
+                        .restaurantId(301)
+                        .restaurantName("QuickBite Downtown")
+                        .deliveryAddress("221B Baker Street")
+                        .build()
+        ));
 
         AgentResponse response = deliveryService.pickUpOrder(1, 55);
 
@@ -309,5 +376,16 @@ class DeliveryServiceTest {
 
         assertEquals(1, active.size());
         assertEquals(55, active.get(0).getCurrentOrderId());
+    }
+
+    @Test
+    void getAgentsByStatus_pending_returnsPendingAgents() {
+        when(deliveryRepository.findByStatus(DeliveryAgent.AgentStatus.PENDING))
+                .thenReturn(List.of(pendingAgent));
+
+        List<AgentResponse> pending = deliveryService.getAgentsByStatus(DeliveryAgent.AgentStatus.PENDING);
+
+        assertEquals(1, pending.size());
+        assertEquals("PENDING", pending.get(0).getStatus());
     }
 }

@@ -73,6 +73,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/v1/agents/*/complete/*").hasRole("AGENT")
 
                 // ── ADMIN role ────────────────────────────────────────────────
+                .requestMatchers(HttpMethod.PUT,    "/api/v1/agents/*/approve").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PUT,    "/api/v1/agents/*/reject").hasRole("ADMIN")
+                .requestMatchers(HttpMethod.PUT,    "/api/v1/agents/*/suspend").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.PUT,    "/api/v1/agents/*/verify").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET,    "/api/v1/agents/all").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.GET,    "/api/v1/agents/active").hasRole("ADMIN")

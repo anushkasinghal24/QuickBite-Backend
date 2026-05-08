@@ -2,12 +2,15 @@ package com.quickbite.delivery_service.serviceimpl;
 
 import com.quickbite.delivery_service.dto.*;
 import com.quickbite.delivery_service.entity.DeliveryAgent;
+import com.quickbite.delivery_service.entity.DeliveryHistory;
 import com.quickbite.delivery_service.exception.*;
 import com.quickbite.delivery_service.feign.OrderServiceClient;
 import com.quickbite.delivery_service.feign.NotificationServiceClient;
 import com.quickbite.delivery_service.feign.RestaurantServiceClient;
+import com.quickbite.delivery_service.repository.DeliveryHistoryRepository;
 import com.quickbite.delivery_service.repository.DeliveryRepository;
 import com.quickbite.delivery_service.service.DeliveryService;
+import com.quickbite.delivery_service.service.RabbitNotificationPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,9 +34,11 @@ import java.util.stream.Collectors;
 public class DeliveryServiceImpl implements DeliveryService {
 
     private final DeliveryRepository deliveryRepository;
+    private final DeliveryHistoryRepository deliveryHistoryRepository;
     private final NotificationServiceClient notificationServiceClient;
     private final OrderServiceClient orderServiceClient;
     private final RestaurantServiceClient restaurantServiceClient;
+    private final RabbitNotificationPublisher rabbitNotificationPublisher;
 
     /** Earnings per delivery in ₹ (configurable — move to application.yml later) */
     private static final double EARNINGS_PER_DELIVERY = 50.0;
@@ -85,6 +90,16 @@ public class DeliveryServiceImpl implements DeliveryService {
 
     @Override
     @Transactional(readOnly = true)
+    public List<DeliveryHistoryResponse> getDeliveryHistory(Integer agentId) {
+        findAgentById(agentId);
+        return deliveryHistoryRepository.findByAgentIdOrderByDeliveredAtDesc(agentId)
+                .stream()
+                .map(DeliveryHistoryResponse::from)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public AssignedOrderResponse getAssignedOrder(Integer agentId) {
         DeliveryAgent agent = findAgentById(agentId);
         if (agent.getCurrentOrderId() == null) {
@@ -102,6 +117,12 @@ public class DeliveryServiceImpl implements DeliveryService {
         if (agent.getCurrentOrderId() == null || !agent.getCurrentOrderId().equals(orderId)) {
             throw new InvalidDeliveryException(
                 "Agent agentId=" + agentId + " does not have order #" + orderId + " assigned.");
+        }
+
+        OrderDetailsDTO order = fetchAssignedOrder(orderId);
+        if (!"READY_TO_PICK_UP".equalsIgnoreCase(order.getOrderStatus())) {
+            throw new InvalidDeliveryException(
+                "Order #" + orderId + " is not ready for pickup yet. Current status: " + order.getOrderStatus());
         }
 
         orderServiceClient.updateOrderStatus(orderId, Map.of("status", "PICKED_UP"));
@@ -308,18 +329,21 @@ public class DeliveryServiceImpl implements DeliveryService {
     public AgentResponse completeDelivery(Integer agentId, Integer orderId) {
         DeliveryAgent agent = findAgentById(agentId);
 
-        // Validate this agent actually has this order
         if (agent.getCurrentOrderId() == null
                 || !agent.getCurrentOrderId().equals(orderId)) {
             throw new InvalidDeliveryException(
                 "Agent agentId=" + agentId + " does not have order #" + orderId + " assigned.");
         }
 
-        // Complete delivery — update stats
+        OrderDetailsDTO order = fetchAssignedOrder(orderId);
+        RestaurantDetailsDTO restaurant = fetchRestaurantDetails(
+                order.getRestaurantId() != null ? order.getRestaurantId().longValue() : null);
+
         agent.setCurrentOrderId(null);
         agent.setTotalDeliveries(agent.getTotalDeliveries() + 1);
         agent.setTotalEarnings(agent.getTotalEarnings() + EARNINGS_PER_DELIVERY);
 
+        saveDeliveryHistory(agentId, order, restaurant);
         orderServiceClient.updateOrderStatus(orderId, Map.of("status", "DELIVERED"));
         DeliveryAgent saved = deliveryRepository.save(agent);
         log.info("Delivery complete — agentId={}, orderId={}, totalDeliveries={}",
@@ -456,11 +480,21 @@ public class DeliveryServiceImpl implements DeliveryService {
                 .restaurantName("Unknown restaurant")
                 .deliveryAddress("Delivery address unavailable")
                 .orderStatus("UNKNOWN")
+                .finalAmount(0.0)
+                .modeOfPayment("COD")
+                .itemCount(0)
                 .build();
     }
 
     private RestaurantDetailsDTO fetchRestaurantDetails(Long restaurantId) {
         try {
+            if (restaurantId == null) {
+                return RestaurantDetailsDTO.builder()
+                        .restaurantId(0L)
+                        .name("Unknown restaurant")
+                        .address("Pickup address unavailable")
+                        .build();
+            }
             ApiResponse<RestaurantDetailsDTO> response = restaurantServiceClient.getRestaurantById(restaurantId);
             if (response != null && response.isSuccess() && response.getData() != null) {
                 return response.getData();
@@ -476,6 +510,38 @@ public class DeliveryServiceImpl implements DeliveryService {
                 .build();
     }
 
+    private void saveDeliveryHistory(Integer agentId,
+                                     OrderDetailsDTO order,
+                                     RestaurantDetailsDTO restaurant) {
+        try {
+            Integer orderId = order != null ? order.getOrderId() : null;
+            if (orderId == null || deliveryHistoryRepository.existsByAgentIdAndOrderId(agentId, orderId)) {
+                return;
+            }
+
+            DeliveryHistory history = DeliveryHistory.builder()
+                    .agentId(agentId)
+                    .orderId(orderId)
+                    .customerId(order.getCustomerId())
+                    .customerName(order.getCustomerName())
+                    .restaurantId(order.getRestaurantId())
+                    .restaurantName(order.getRestaurantName())
+                    .pickupAddress(restaurant != null ? restaurant.getAddress() : null)
+                    .deliveryAddress(order.getDeliveryAddress())
+                    .finalAmount(order.getFinalAmount())
+                    .modeOfPayment(order.getModeOfPayment())
+                    .orderStatus("DELIVERED")
+                    .itemCount(order.getItemCount())
+                    .orderDate(order.getOrderDate())
+                    .build();
+
+            deliveryHistoryRepository.save(history);
+        } catch (Exception e) {
+            log.warn("Failed to save delivery history for agentId={}, orderId={}: {}",
+                    agentId, order != null ? order.getOrderId() : null, e.getMessage());
+        }
+    }
+
     /**
      * Send notification via notification-service (Feign).
      * Graceful fallback — if notification-service is down, delivery still works.
@@ -483,14 +549,18 @@ public class DeliveryServiceImpl implements DeliveryService {
     private void sendNotification(String type, Integer recipientId,
                                    String title, String message, Integer relatedId) {
         try {
-            notificationServiceClient.sendNotification(Map.of(
-                "type",        type,
-                "recipientId", recipientId,
-                "title",       title,
-                "message",     message,
-                "relatedId",   relatedId,
-                "relatedType", "DELIVERY_AGENT"
-            ));
+            Map<String, Object> payload = Map.of(
+                    "type", type,
+                    "recipientId", recipientId,
+                    "title", title,
+                    "message", message,
+                    "relatedId", relatedId,
+                    "relatedType", "DELIVERY_AGENT"
+            );
+
+            if (!rabbitNotificationPublisher.publish(payload)) {
+                notificationServiceClient.sendNotification(payload);
+            }
         } catch (Exception e) {
             // Non-blocking: notification failure must not break delivery service
             log.warn("Notification failed (non-critical): type={}, recipientId={} — {}",

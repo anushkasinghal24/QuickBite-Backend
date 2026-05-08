@@ -167,6 +167,41 @@ public class DeliveryResource {
         return ResponseEntity.ok(ApiResponse.success("Agent status updated: " + request.getAction(), response));
     }
 
+    @PutMapping("/{agentId}/approve")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Approve agent (ADMIN)", security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<AgentResponse>> approveAgent(@PathVariable Integer agentId) {
+        log.info("PUT /api/v1/agents/{}/approve", agentId);
+        AgentResponse response = deliveryService.verifyAgent(agentId, new VerifyAgentRequest("VERIFY", null));
+        return ResponseEntity.ok(ApiResponse.success("Agent approved", response));
+    }
+
+    @PutMapping("/{agentId}/reject")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Reject agent (ADMIN)", security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<AgentResponse>> rejectAgent(
+            @PathVariable Integer agentId,
+            @RequestBody(required = false) VerifyAgentRequest request) {
+
+        String remarks = request != null ? request.getRemarks() : null;
+        log.info("PUT /api/v1/agents/{}/reject", agentId);
+        AgentResponse response = deliveryService.verifyAgent(agentId, new VerifyAgentRequest("REJECT", remarks));
+        return ResponseEntity.ok(ApiResponse.success("Agent rejected", response));
+    }
+
+    @PutMapping("/{agentId}/suspend")
+    @PreAuthorize("hasRole('ADMIN')")
+    @Operation(summary = "Suspend agent (ADMIN)", security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<AgentResponse>> suspendAgent(
+            @PathVariable Integer agentId,
+            @RequestBody(required = false) VerifyAgentRequest request) {
+
+        String remarks = request != null ? request.getRemarks() : null;
+        log.info("PUT /api/v1/agents/{}/suspend", agentId);
+        AgentResponse response = deliveryService.verifyAgent(agentId, new VerifyAgentRequest("SUSPEND", remarks));
+        return ResponseEntity.ok(ApiResponse.success("Agent suspended", response));
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // POST /api/v1/agents/{agentId}/assign-order
     // Assign order to agent — called by order-service (internal)
@@ -253,13 +288,21 @@ public class DeliveryResource {
     @GetMapping("/{agentId}/earnings")
     @PreAuthorize("hasAnyRole('AGENT', 'ADMIN')")
     @Operation(summary = "Get earnings summary (AGENT)", security = @SecurityRequirement(name = "bearerAuth"))
-    public ResponseEntity<ApiResponse<EarningsSummaryResponse>> getEarnings(@PathVariable Integer agentId) {
-        EarningsSummaryResponse response = deliveryService.getEarningsSummary(agentId);
-        return ResponseEntity.ok(ApiResponse.success("Earnings fetched", response));
-    }
+  public ResponseEntity<ApiResponse<EarningsSummaryResponse>> getEarnings(@PathVariable Integer agentId) {
+      EarningsSummaryResponse response = deliveryService.getEarningsSummary(agentId);
+      return ResponseEntity.ok(ApiResponse.success("Earnings fetched", response));
+  }
 
-    // ─────────────────────────────────────────────────────────────────
-    // GET /api/v1/agents/active
+  @GetMapping("/{agentId}/history")
+  @PreAuthorize("hasAnyRole('AGENT', 'ADMIN')")
+  @Operation(summary = "Get completed delivery history (AGENT)", security = @SecurityRequirement(name = "bearerAuth"))
+  public ResponseEntity<ApiResponse<List<DeliveryHistoryResponse>>> getDeliveryHistory(@PathVariable Integer agentId) {
+      List<DeliveryHistoryResponse> history = deliveryService.getDeliveryHistory(agentId);
+      return ResponseEntity.ok(ApiResponse.success("Delivery history fetched (" + history.size() + ")", history));
+  }
+
+  // ─────────────────────────────────────────────────────────────────
+  // GET /api/v1/agents/active
     // ADMIN: agents currently delivering
     // ─────────────────────────────────────────────────────────────────
     @GetMapping("/active")

@@ -25,4 +25,7 @@ public class OrderDetailsDTO {
     private String deliveryAddress;
     private LocalDateTime orderDate;
     private LocalDateTime estimatedDelivery;
+    private Double finalAmount;
+    private String modeOfPayment;
+    private Integer itemCount;
 }

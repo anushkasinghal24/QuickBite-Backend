@@ -1,20 +1,21 @@
 server:
-  port: 8087 # delivery-service port (as per API Gateway config)
+  port: 8087                          # delivery-service port (as per API Gateway config)
 
 spring:
   config:
-    import: optional:file:./.env[.properties]
+    import: optional:file:.env[.properties]
   application:
-    name: delivery-service # Eureka registration name must match gateway route lb://delivery-service
+    name: delivery-service            # Eureka registration name — MUST match gateway route lb://delivery-service
 
   cloud:
     config:
-      enabled: false # Disable config server (same as auth/cart)
+      enabled: false                  # Disable config server (same as auth/cart)
 
+  # ── Database ─────────────────────────────────────────────────────────────────
   datasource:
     url: ${QUICKBITE_DELIVERY_DB_URL:jdbc:mysql://localhost:3306/quickbite_delivery?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
-    username: ${QUICKBITE_DELIVERY_DB_USERNAME}
-    password: ${QUICKBITE_DELIVERY_DB_PASSWORD}
+    username: ${QUICKBITE_DELIVERY_DB_USERNAME:root}
+    password: ${QUICKBITE_DELIVERY_DB_PASSWORD:}
     driver-class-name: ${QUICKBITE_DELIVERY_DB_DRIVER:com.mysql.cj.jdbc.Driver}
     hikari:
       maximum-pool-size: 10
@@ -34,19 +35,32 @@ spring:
     init:
       mode: never
 
+# ── Eureka Client ──────────────────────────────────────────────────────────────
+  rabbitmq:
+    host: ${QUICKBITE_RABBITMQ_HOST:localhost}
+    port: ${QUICKBITE_RABBITMQ_PORT:5672}
+    username: ${QUICKBITE_RABBITMQ_USERNAME:guest}
+    password: ${QUICKBITE_RABBITMQ_PASSWORD:guest}
+
+# â”€â”€ Eureka Client â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: ${QUICKBITE_EUREKA_URL:http://localhost:8761/eureka/}
     fetch-registry: true
     register-with-eureka: true
   instance:
     prefer-ip-address: true
     instance-id: ${spring.application.name}:${server.port}
 
+# ── JWT Config ────────────────────────────────────────────────────────────────
+# MUST match auth-service secret exactly
+# restaurant-service uses raw bytes, cart-service also uses raw bytes
+# delivery-service follows restaurant-service pattern (raw bytes)
 jwt:
-  secret: ${QUICKBITE_DELIVERY_JWT_SECRET}
+  secret: ${QUICKBITE_DELIVERY_JWT_SECRET:}
 
+# ── Feign Client ──────────────────────────────────────────────────────────────
 feign:
   client:
     config:
@@ -54,6 +68,7 @@ feign:
         connect-timeout: 5000
         read-timeout: 10000
 
+# ── Actuator ─────────────────────────────────────────────────────────────────
 management:
   endpoints:
     web:
@@ -63,6 +78,7 @@ management:
     health:
       show-details: always
 
+# ── Swagger / OpenAPI ─────────────────────────────────────────────────────────
 springdoc:
   api-docs:
     path: /api-docs
@@ -70,8 +86,10 @@ springdoc:
     path: /swagger-ui.html
     operationsSorter: method
 
+# ── Logging ───────────────────────────────────────────────────────────────────
 logging:
   level:
     com.quickbite.delivery_service: DEBUG
     org.springframework.security: INFO
     org.hibernate.SQL: DEBUG
+
