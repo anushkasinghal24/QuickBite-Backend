@@ -181,6 +181,57 @@ public class PaymentController {
      * GET /api/v1/wallet/{customerId}
      * Get wallet details (auto-creates if not exists).
      */
+    @PostMapping("/api/v1/payments/razorpay/create-order")
+    @PreAuthorize("hasAnyRole('CUSTOMER','ADMIN')")
+    @Operation(summary = "Create Razorpay checkout order",
+               security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<RazorpayOrderResponse>> createRazorpayOrder(
+            @Valid @RequestBody RazorpayCreateOrderRequest request) {
+
+        log.info("Creating Razorpay order: orderId={}, amount={}", request.getOrderId(), request.getAmount());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Razorpay order created successfully.",
+                        paymentService.createRazorpayOrder(request)));
+    }
+
+    @PostMapping("/api/v1/payments/razorpay/checkout")
+    @PreAuthorize("hasAnyRole('CUSTOMER','ADMIN')")
+    @Operation(summary = "Create Razorpay checkout order before placing the order",
+               security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<RazorpayOrderResponse>> createRazorpayCheckoutOrder(
+            @Valid @RequestBody RazorpayCheckoutRequest request) {
+
+        log.info("Creating pre-order Razorpay checkout: amount={}, mode={}", request.getAmount(), request.getMode());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Razorpay checkout created successfully.",
+                        paymentService.createRazorpayCheckoutOrder(request)));
+    }
+
+    @PostMapping("/api/v1/payments/razorpay/verify")
+    @PreAuthorize("hasAnyRole('CUSTOMER','ADMIN')")
+    @Operation(summary = "Verify Razorpay payment",
+               security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<PaymentResponse>> verifyRazorpayPayment(
+            @Valid @RequestBody RazorpayVerifyPaymentRequest request) {
+
+        log.info("Verifying Razorpay payment: orderId={}, razorpayOrderId={}",
+                request.getOrderId(), request.getRazorpayOrderId());
+        return ResponseEntity.ok(ApiResponse.success("Razorpay payment verified successfully.",
+                paymentService.verifyRazorpayPayment(request)));
+    }
+
+    @PostMapping("/api/v1/payments/razorpay/verify-checkout")
+    @PreAuthorize("hasAnyRole('CUSTOMER','ADMIN')")
+    @Operation(summary = "Verify pre-order Razorpay checkout payment",
+               security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<Void>> verifyRazorpayCheckoutPayment(
+            @Valid @RequestBody RazorpayCheckoutVerifyRequest request) {
+
+        log.info("Verifying pre-order Razorpay payment: razorpayOrderId={}", request.getRazorpayOrderId());
+        paymentService.verifyRazorpayCheckoutPayment(request);
+        return ResponseEntity.ok(ApiResponse.success("Razorpay checkout verified successfully.", null));
+    }
+
     @GetMapping("/api/v1/wallet/{customerId}")
     @PreAuthorize("hasAnyRole('CUSTOMER','ADMIN')")
     @Operation(summary = "Get wallet details for customer",
@@ -201,6 +252,53 @@ public class PaymentController {
     public ResponseEntity<ApiResponse<Double>> getBalance(@PathVariable Long customerId) {
         return ResponseEntity.ok(ApiResponse.success("Balance fetched.",
                 paymentService.getWalletBalance(customerId)));
+    }
+
+    /**
+     * POST /api/v1/wallet/razorpay/create-order
+     * Create a Razorpay order for wallet top-up.
+     */
+    @PostMapping("/api/v1/wallet/razorpay/create-order")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Create Razorpay order for wallet top-up",
+               security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<RazorpayWalletTopUpResponse>> createWalletTopUpOrder(
+            @Valid @RequestBody RazorpayWalletTopUpCreateRequest request,
+            Authentication authentication) {
+
+        Long authenticatedUserId = (Long) authentication.getPrincipal();
+        if (!authenticatedUserId.equals(request.getCustomerId())) {
+            request.setCustomerId(authenticatedUserId);
+        }
+
+        log.info("Creating wallet top-up Razorpay order: customerId={}, amount={}",
+                request.getCustomerId(), request.getAmount());
+        return ResponseEntity.status(HttpStatus.CREATED)
+                .body(ApiResponse.success("Wallet top-up Razorpay order created successfully.",
+                        paymentService.createRazorpayWalletTopUpOrder(request)));
+    }
+
+    /**
+     * POST /api/v1/wallet/razorpay/verify
+     * Verify Razorpay wallet top-up payment.
+     */
+    @PostMapping("/api/v1/wallet/razorpay/verify")
+    @PreAuthorize("hasRole('CUSTOMER')")
+    @Operation(summary = "Verify Razorpay wallet top-up payment",
+               security = @SecurityRequirement(name = "bearerAuth"))
+    public ResponseEntity<ApiResponse<Void>> verifyWalletTopUpPayment(
+            @Valid @RequestBody RazorpayWalletTopUpVerifyRequest request,
+            Authentication authentication) {
+
+        Long authenticatedUserId = (Long) authentication.getPrincipal();
+        if (!authenticatedUserId.equals(request.getCustomerId())) {
+            request.setCustomerId(authenticatedUserId);
+        }
+
+        log.info("Verifying wallet top-up payment: customerId={}, razorpayOrderId={}",
+                request.getCustomerId(), request.getRazorpayOrderId());
+        paymentService.verifyRazorpayWalletTopUpPayment(request);
+        return ResponseEntity.ok(ApiResponse.success("Wallet top-up payment verified successfully.", null));
     }
 
     /**

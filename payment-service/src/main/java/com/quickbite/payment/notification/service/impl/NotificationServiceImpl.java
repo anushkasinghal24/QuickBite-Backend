@@ -1,13 +1,15 @@
 package com.quickbite.payment.notification.service.impl;
 
-import com.quickbite.payment.notification.constants.AppConstants;
 import com.quickbite.payment.dto.response.PagedResponse;
-import com.quickbite.payment.notification.dto.request.*;
-import com.quickbite.payment.notification.dto.response.*;
+import com.quickbite.payment.notification.constants.AppConstants;
+import com.quickbite.payment.notification.dto.request.BulkNotificationRequest;
+import com.quickbite.payment.notification.dto.request.SendNotificationRequest;
+import com.quickbite.payment.notification.dto.response.NotificationResponse;
 import com.quickbite.payment.notification.entity.Notification;
 import com.quickbite.payment.notification.repository.NotificationRepository;
 import com.quickbite.payment.notification.service.EmailService;
 import com.quickbite.payment.notification.service.NotificationService;
+import com.quickbite.payment.notification.service.RabbitNotificationPublisher;
 import com.quickbite.payment.notification.service.SmsService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -20,24 +22,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * NotificationServiceImpl â€” PDF Section 4.9
- *
- * Implements:
- *   send(), sendBulk(), markAsRead(), markAllRead(),
- *   getByRecipient(), getUnreadCount(), deleteNotification(),
- *   sendEmail(), sendSMS(), getAll()
- *
- * Channel routing logic:
- *   APP  â†’ saves Notification entity to DB only
- *   EMAIL â†’ async email via JavaMailSender (no DB record)
- *   SMS  â†’ async SMS via Twilio (no DB record)
- *   ALL  â†’ APP + EMAIL + SMS simultaneously
- *
- * PDF NFR (Section 6):
- *   "graceful degradation on notification service outage"
- *   â†’ All email/SMS failures are caught and logged, never propagated.
- */
 @Service
 @RequiredArgsConstructor
 @Slf4j
@@ -45,12 +29,9 @@ import java.util.List;
 public class NotificationServiceImpl implements NotificationService {
 
     private final NotificationRepository notificationRepository;
-    private final EmailService           emailService;
-    private final SmsService             smsService;
-
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // SEND â€” single notification (called by all other services via Feign)
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    private final EmailService emailService;
+    private final SmsService smsService;
+    private final RabbitNotificationPublisher rabbitNotificationPublisher;
 
     @Override
     public NotificationResponse send(SendNotificationRequest request) {
@@ -63,7 +44,6 @@ public class NotificationServiceImpl implements NotificationService {
         boolean audible = Boolean.TRUE.equals(request.getAudible())
                 || AppConstants.NEW_ORDER_ALERT.equals(request.getType());
 
-        // â”€â”€ APP channel: persist to DB â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if (AppConstants.CHANNEL_APP.equals(channel) || AppConstants.CHANNEL_ALL.equals(channel)) {
             Notification notification = Notification.builder()
                     .recipientId(request.getRecipientId())
@@ -81,24 +61,16 @@ public class NotificationServiceImpl implements NotificationService {
             log.debug("APP notification persisted: id={}", savedResponse.getNotificationId());
         }
 
-        // â”€â”€ EMAIL channel: async dispatch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if ((AppConstants.CHANNEL_EMAIL.equals(channel) || AppConstants.CHANNEL_ALL.equals(channel))
                 && request.getRecipientEmail() != null) {
-            emailService.sendSimpleEmail(
-                    request.getRecipientEmail(),
-                    request.getTitle(),
-                    request.getMessage());
-            log.debug("EMAIL notification dispatched to: {}", request.getRecipientEmail());
+            dispatchEmail(request);
         }
 
-        // â”€â”€ SMS channel: async dispatch â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         if ((AppConstants.CHANNEL_SMS.equals(channel) || AppConstants.CHANNEL_ALL.equals(channel))
                 && request.getRecipientPhone() != null) {
-            smsService.sendSms(request.getRecipientPhone(), request.getMessage());
-            log.debug("SMS notification dispatched to: {}", request.getRecipientPhone());
+            dispatchSms(request);
         }
 
-        // If only EMAIL/SMS (no APP), return a lightweight response
         if (savedResponse == null) {
             savedResponse = NotificationResponse.builder()
                     .recipientId(request.getRecipientId())
@@ -114,11 +86,6 @@ public class NotificationServiceImpl implements NotificationService {
 
         return savedResponse;
     }
-
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // SEND BULK â€” admin broadcast (PDF Section 2.7)
-    // "Admin can broadcast platform-wide promotional or informational notifications"
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     @Override
     public int sendBulk(BulkNotificationRequest request) {
@@ -159,10 +126,6 @@ public class NotificationServiceImpl implements NotificationService {
         return request.getRecipientIds().size();
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // MARK AS READ
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
     @Override
     public void markAsRead(Long notificationId, Long recipientId) {
         int updated = notificationRepository.markAsRead(notificationId, recipientId);
@@ -178,10 +141,6 @@ public class NotificationServiceImpl implements NotificationService {
         log.info("Marked {} notifications as read for recipientId={}", count, recipientId);
         return count;
     }
-
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // GET BY RECIPIENT (paginated, newest first)
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     @Override
     @Transactional(readOnly = true)
@@ -201,30 +160,17 @@ public class NotificationServiceImpl implements NotificationService {
         return PagedResponse.of(page);
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // UNREAD COUNT â€” PDF Section 2.7
-    // "Unread badge count displayed in real time in the navigation bar."
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
     @Override
     @Transactional(readOnly = true)
     public long getUnreadCount(Long recipientId) {
         return notificationRepository.countByRecipientIdAndIsReadFalse(recipientId);
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // DELETE
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
     @Override
     public void deleteNotification(Long notificationId) {
         notificationRepository.deleteByNotificationId(notificationId);
         log.info("Notification {} deleted", notificationId);
     }
-
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // DIRECT EMAIL / SMS (internal dispatch)
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
 
     @Override
     public void sendEmail(String toEmail, String subject, String body) {
@@ -236,10 +182,6 @@ public class NotificationServiceImpl implements NotificationService {
         smsService.sendSms(toPhone, message);
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // ADMIN: ALL NOTIFICATIONS
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-
     @Override
     @Transactional(readOnly = true)
     public PagedResponse<NotificationResponse> getAll(Pageable pageable) {
@@ -249,9 +191,21 @@ public class NotificationServiceImpl implements NotificationService {
         return PagedResponse.of(page);
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // MAPPER
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    private void dispatchEmail(SendNotificationRequest request) {
+        boolean queued = rabbitNotificationPublisher.publishEmail(request);
+        if (!queued) {
+            emailService.sendSimpleEmail(request.getRecipientEmail(), request.getTitle(), request.getMessage());
+            log.debug("EMAIL notification sent directly to: {}", request.getRecipientEmail());
+        }
+    }
+
+    private void dispatchSms(SendNotificationRequest request) {
+        boolean queued = rabbitNotificationPublisher.publishSms(request);
+        if (!queued) {
+            smsService.sendSms(request.getRecipientPhone(), request.getMessage());
+            log.debug("SMS notification sent directly to: {}", request.getRecipientPhone());
+        }
+    }
 
     private NotificationResponse mapToResponse(Notification n) {
         return NotificationResponse.builder()

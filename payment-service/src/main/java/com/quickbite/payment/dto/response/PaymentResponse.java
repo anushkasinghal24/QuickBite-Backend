@@ -14,6 +14,8 @@ public class PaymentResponse {
     private String status;
     private String mode;
     private String transactionId;
+    private String gatewayOrderId;
+    private String gatewayPaymentId;
     private String currency;
     private String refundTransactionId;
     private String failureReason;

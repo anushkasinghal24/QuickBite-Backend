@@ -152,7 +152,8 @@ public class NotificationController {
                     .body(ApiResponse.error("You can only view your own notifications.", "ACCESS_DENIED"));
         }
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("sentAt").descending());
+        int effectiveSize = Math.min(Math.max(size, 1), 20);
+        Pageable pageable = PageRequest.of(page, effectiveSize, Sort.by("sentAt").descending());
         return ResponseEntity.ok(ApiResponse.success("Notifications fetched.",
                 notificationService.getByRecipient(recipientId, unreadOnly, pageable)));
     }
@@ -268,7 +269,8 @@ public class NotificationController {
             @RequestParam(defaultValue = "0")  int page,
             @RequestParam(defaultValue = "20") int size) {
 
-        Pageable pageable = PageRequest.of(page, size, Sort.by("sentAt").descending());
+        int effectiveSize = Math.min(Math.max(size, 1), 20);
+        Pageable pageable = PageRequest.of(page, effectiveSize, Sort.by("sentAt").descending());
         return ResponseEntity.ok(ApiResponse.success("All notifications fetched.",
                 notificationService.getAll(pageable)));
     }

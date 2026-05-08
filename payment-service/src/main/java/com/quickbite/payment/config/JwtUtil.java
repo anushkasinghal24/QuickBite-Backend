@@ -1,6 +1,7 @@
 package com.quickbite.payment.config;
 
 import io.jsonwebtoken.*;
+import io.jsonwebtoken.io.Decoders;
 import io.jsonwebtoken.security.Keys;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,15 +11,16 @@ import java.security.Key;
 import java.util.Date;
 
 /**
- * JwtUtil validates tokens issued by auth-service.
+ * JwtUtil â€” validates tokens issued by auth-service.
  * Pattern matches cart-service JwtUtil exactly.
  *
- * Must use the same secret value as auth-service.
+ * MUST use same secret as auth-service:
+ *   jwt.secret=QuickBiteSecretKeyForJWTTokenGenerationAndValidation2026
  *
  * Extracted claims:
- *   sub    -> email
- *   userId -> int (matches cart-service pattern)
- *   role   -> CUSTOMER / OWNER / AGENT / ADMIN
+ *   sub   â†’ email
+ *   userId â†’ int (matches cart-service pattern)
+ *   role  â†’ CUSTOMER / OWNER / AGENT / ADMIN
  */
 @Component
 @Slf4j
@@ -28,7 +30,8 @@ public class JwtUtil {
     private String secret;
 
     private Key getSigningKey() {
-        return Keys.hmacShaKeyFor(secret.getBytes());
+        byte[] keyBytes = Decoders.BASE64.decode(secret);
+        return Keys.hmacShaKeyFor(keyBytes);
     }
 
     public boolean validateToken(String token) {
@@ -58,7 +61,7 @@ public class JwtUtil {
         return (String) getClaims(token).get("role");
     }
 
-    /** Returns userId as Long because payment-service uses Long IDs. */
+    /** Returns userId as Long â€” payment-service uses Long IDs */
     public Long extractUserId(String token) {
         Object id = getClaims(token).get("userId");
         return id != null ? Long.parseLong(id.toString()) : null;

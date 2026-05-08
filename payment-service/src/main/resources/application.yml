@@ -1,19 +1,16 @@
 server:
-  port: 8084   # auth=8081, restaurant=8082, cart=8083, payment=8084
+  port: ${SERVER_PORT:8084}
 
 spring:
-  application:
-    name: payment-service
   config:
-    import:
-      - optional:file:./.env[.properties]
-      - optional:file:./payment-service/.env[.properties]
+    import: optional:file:.env[.properties]
+  application:
+    name: ${SPRING_APPLICATION_NAME:payment-service}
 
-  # ── Database ─────────────────────────────────────────────────────────────
   datasource:
     url: ${QUICKBITE_PAYMENT_DB_URL:jdbc:mysql://localhost:3306/quickbite_payment?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${QUICKBITE_PAYMENT_DB_USERNAME:root}
-    password: ${QUICKBITE_PAYMENT_DB_PASSWORD}
+    password: ${QUICKBITE_PAYMENT_DB_PASSWORD:}
     driver-class-name: ${QUICKBITE_PAYMENT_DB_DRIVER:com.mysql.cj.jdbc.Driver}
     hikari:
       maximum-pool-size: 10
@@ -29,7 +26,6 @@ spring:
         format_sql: true
         dialect: ${QUICKBITE_PAYMENT_HIBERNATE_DIALECT:org.hibernate.dialect.MySQLDialect}
 
-  # Config Server (disabled like auth-service)
   cloud:
     config:
       enabled: false
@@ -39,10 +35,11 @@ spring:
       mode: never
 
   mail:
-    host: smtp.gmail.com
-    port: 587
-    username: ${QUICKBITE_MAIL_USERNAME}
-    password: ${QUICKBITE_MAIL_PASSWORD}
+    host: ${QUICKBITE_MAIL_HOST:smtp.gmail.com}
+    port: ${QUICKBITE_MAIL_PORT:587}
+    username: ${QUICKBITE_MAIL_USERNAME:}
+    password: ${QUICKBITE_MAIL_PASSWORD:}
+    default-encoding: UTF-8
     properties:
       mail:
         smtp:
@@ -53,23 +50,38 @@ spring:
           timeout: 5000
           writetimeout: 5000
 
-# ── Eureka Client ─────────────────────────────────────────────────────────
+  rabbitmq:
+    host: ${QUICKBITE_RABBITMQ_HOST:localhost}
+    port: ${QUICKBITE_RABBITMQ_PORT:5672}
+    username: ${QUICKBITE_RABBITMQ_USERNAME:guest}
+    password: ${QUICKBITE_RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: true
+    template:
+      mandatory: true
+
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: ${QUICKBITE_EUREKA_URL:http://localhost:8761/eureka/}
     fetch-registry: true
     register-with-eureka: true
   instance:
     prefer-ip-address: true
     instance-id: ${spring.application.name}:${server.port}
 
-# ── JWT — MUST match auth-service secret exactly ──────────────────────────
 jwt:
-  secret: ${QUICKBITE_JWT_SECRET}
-  expiration: 86400000
+  secret: ${QUICKBITE_PAYMENT_JWT_SECRET:}
+  expiration: ${QUICKBITE_PAYMENT_JWT_EXPIRATION:86400000}
 
-# ── Feign Client ─────────────────────────────────────────────────────────
+razorpay:
+  key-id: ${RAZORPAY_KEY_ID:}
+  key-secret: ${RAZORPAY_KEY_SECRET:}
+  webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+  api-base-url: ${RAZORPAY_API_BASE_URL:https://api.razorpay.com}
+
 feign:
   client:
     config:
@@ -79,7 +91,6 @@ feign:
   circuitbreaker:
     enabled: true
 
-# ── Actuator ─────────────────────────────────────────────────────────────
 management:
   endpoints:
     web:
@@ -88,8 +99,10 @@ management:
   endpoint:
     health:
       show-details: always
+  health:
+    mail:
+      enabled: false
 
-# ── Swagger ──────────────────────────────────────────────────────────────
 springdoc:
   api-docs:
     path: /api-docs
@@ -97,7 +110,6 @@ springdoc:
     path: /swagger-ui.html
     operationsSorter: method
 
-# ── Logging ──────────────────────────────────────────────────────────────
 logging:
   level:
     com.quickbite.payment_service: DEBUG
@@ -106,14 +118,14 @@ logging:
 
 notification:
   email:
-    from: ${QUICKBITE_NOTIFICATION_EMAIL_FROM:QuickBite <quickbite.noreply@gmail.com>}
+    from: "QuickBite <quickbite.noreply@gmail.com>"
   sms:
     enabled: false
-  email-enabled: true
+  email-enabled: ${QUICKBITE_EMAIL_ENABLED:true}
 
 sms:
   provider: mock
   twilio:
-    account-sid: ${QUICKBITE_TWILIO_ACCOUNT_SID}
-    auth-token: ${QUICKBITE_TWILIO_AUTH_TOKEN}
-    from-number: ${QUICKBITE_TWILIO_FROM_NUMBER:+1234567890}
+    account-sid: ${TWILIO_ACCOUNT_SID:ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+    auth-token: ${TWILIO_AUTH_TOKEN:}
+    from-number: ${TWILIO_FROM_NUMBER:+1234567890}

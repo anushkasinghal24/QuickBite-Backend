@@ -70,6 +70,12 @@ public class Payment {
     @Column(name = "transaction_id", unique = true, length = 100)
     private String transactionId;
 
+    @Column(name = "gateway_order_id", length = 100)
+    private String gatewayOrderId;
+
+    @Column(name = "gateway_payment_id", length = 100)
+    private String gatewayPaymentId;
+
     @Column(name = "currency", length = 10)
     @Builder.Default
     private String currency = "INR";

@@ -24,6 +24,24 @@ public interface PaymentService {
     /** Process payment when order is placed (called by order-service) */
     PaymentResponse processPayment(ProcessPaymentRequest request);
 
+    /** Create a Razorpay checkout order for CARD/UPI payment flow. */
+    RazorpayOrderResponse createRazorpayOrder(RazorpayCreateOrderRequest request);
+
+    /** Create a Razorpay checkout order before the order is placed. */
+    RazorpayOrderResponse createRazorpayCheckoutOrder(RazorpayCheckoutRequest request);
+
+    /** Verify Razorpay checkout signature and finalize the payment. */
+    PaymentResponse verifyRazorpayPayment(RazorpayVerifyPaymentRequest request);
+
+    /** Verify a pre-order Razorpay checkout signature. */
+    void verifyRazorpayCheckoutPayment(RazorpayCheckoutVerifyRequest request);
+
+    /** Create a Razorpay order for wallet top-up. */
+    RazorpayWalletTopUpResponse createRazorpayWalletTopUpOrder(RazorpayWalletTopUpCreateRequest request);
+
+    /** Verify Razorpay wallet top-up payment signature. */
+    void verifyRazorpayWalletTopUpPayment(RazorpayWalletTopUpVerifyRequest request);
+
     /** Get payment by orderId (order-service + customer use this) */
     PaymentResponse getByOrderId(Long orderId);
 

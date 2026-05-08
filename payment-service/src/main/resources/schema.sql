@@ -1,5 +1,5 @@
--- ============================================================
--- QuickBite — payment-service Database Schema
+﻿-- ============================================================
+-- QuickBite â€” payment-service Database Schema
 -- Database: quickbite_payment
 -- JPA ddl-auto=update auto-creates. This file is REFERENCE only.
 -- ============================================================
@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS notifications (
 INSERT INTO notifications (recipient_id, type, title, message, channel, related_id, related_type, deep_link_url, is_read, sent_at) VALUES
 (1, 'ORDER_PLACED',    'Order Placed!',       'Your order #101 has been placed successfully.',         'APP', 101, 'ORDER', '/orders/101', FALSE, NOW()),
 (1, 'ORDER_CONFIRMED', 'Order Confirmed',     'Your order #101 has been confirmed by the restaurant.', 'APP', 101, 'ORDER', '/orders/101', FALSE, NOW()),
-(1, 'PAYMENT_RECEIPT', 'Payment Successful',  'Payment of ₹350 received for order #101.',               'APP', 201, 'PAYMENT', '/wallet',   TRUE,  NOW()),
+(1, 'PAYMENT_RECEIPT', 'Payment Successful',  'Payment of Rs. 350 received for order #101.',               'APP', 201, 'PAYMENT', '/wallet',   TRUE,  NOW()),
 (2, 'NEW_ORDER_ALERT', 'New Order!',          'New order #101 received! Check your dashboard.',        'APP', 101, 'ORDER', '/dashboard', FALSE, NOW()),
 (2, 'RESTAURANT_APPROVED', 'Restaurant Approved!', 'Your restaurant is now live on QuickBite!',          'APP', 1,   'RESTAURANT', '/dashboard', TRUE, NOW());
+

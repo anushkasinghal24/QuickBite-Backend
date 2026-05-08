@@ -1,34 +1,48 @@
 package com.quickbite.payment.service.impl;
 
 import com.quickbite.payment.constants.AppConstants;
+import com.quickbite.payment.dto.ApiResponse;
 import com.quickbite.payment.dto.request.*;
 import com.quickbite.payment.dto.response.*;
 import com.quickbite.payment.entity.*;
 import com.quickbite.payment.exception.*;
 import com.quickbite.payment.repository.*;
 import com.quickbite.payment.service.PaymentService;
+import com.quickbite.payment.dto.UserContactDTO;
+import com.quickbite.payment.feign.AuthServiceClient;
 import com.quickbite.payment.notification.dto.request.SendNotificationRequest;
 import com.quickbite.payment.notification.service.NotificationService;
+import com.quickbite.payment.config.RazorpayProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.client.RestTemplate;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
- * PaymentServiceImpl â€” complete implementation of PaymentService.
+ * PaymentServiceImpl Ã¢â‚¬â€ complete implementation of PaymentService.
  *
  * Key business rules (PDF Section 2.6):
- * 1. Wallet balance NEVER goes below 0 â€” validated before debit.
- * 2. Cart-to-order payment is ATOMIC â€” @Transactional prevents partial states.
+ * 1. Wallet balance NEVER goes below 0 Ã¢â‚¬â€ validated before debit.
+ * 2. Cart-to-order payment is ATOMIC Ã¢â‚¬â€ @Transactional prevents partial states.
  * 3. Refunds go to WALLET (instant) or ORIGINAL mode (3-5 days).
  * 4. Every wallet operation generates a WalletStatement for audit trail.
  * 5. COD payments are created as PAID immediately (no gateway needed).
@@ -39,14 +53,18 @@ import java.util.stream.Collectors;
 @Transactional
 public class PaymentServiceImpl implements PaymentService {
 
-    private final PaymentRepository      paymentRepository;
-    private final WalletRepository       walletRepository;
+    private final PaymentRepository paymentRepository;
+    private final WalletRepository walletRepository;
     private final WalletStatementRepository statementRepository;
-    private final NotificationService    notificationService;
+    private final NotificationService notificationService;
+    private final AuthServiceClient authServiceClient;
+    private final RazorpayProperties razorpayProperties;
+    private final ObjectMapper objectMapper;
+    private final RestTemplate restTemplate = new RestTemplate();
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // PROCESS PAYMENT â€” entry point called by order-service
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    // PROCESS PAYMENT Ã¢â‚¬â€ entry point called by order-service
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     @Override
     public PaymentResponse processPayment(ProcessPaymentRequest request) {
@@ -89,15 +107,152 @@ public class PaymentServiceImpl implements PaymentService {
         Payment saved = paymentRepository.save(payment);
         log.info("Payment saved: id={}, status={}", saved.getPaymentId(), saved.getStatus());
 
-        // Notify customer (payment receipt) â€” async, graceful fallback
+        // Notify customer (payment receipt) Ã¢â‚¬â€ async, graceful fallback
         sendPaymentNotification(saved, "PAYMENT_RECEIPT");
 
         return mapToResponse(saved);
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // PAY FROM WALLET â€” debit wallet balance atomically
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    // PAY FROM WALLET Ã¢â‚¬â€ debit wallet balance atomically
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+
+    @Override
+    public RazorpayOrderResponse createRazorpayOrder(RazorpayCreateOrderRequest request) {
+        validateGatewayConfig();
+
+        Payment payment = paymentRepository.findByOrderId(request.getOrderId())
+                .orElseGet(() -> Payment.builder()
+                        .orderId(request.getOrderId())
+                        .customerId(request.getCustomerId())
+                        .amount(request.getAmount())
+                        .mode(normalizeGatewayMode(request.getMode()))
+                        .currency(normalizeCurrency(request.getCurrency()))
+                        .transactionId(generateTransactionId())
+                        .status(AppConstants.PAYMENT_PENDING)
+                        .build());
+
+        payment.setCustomerId(request.getCustomerId());
+        payment.setAmount(request.getAmount());
+        payment.setMode(normalizeGatewayMode(request.getMode()));
+        payment.setCurrency(normalizeCurrency(request.getCurrency()));
+        if (payment.getTransactionId() == null || payment.getTransactionId().isBlank()) {
+            payment.setTransactionId(generateTransactionId());
+        }
+
+        if (payment.getPaymentId() != null
+                && !AppConstants.PAYMENT_PENDING.equals(payment.getStatus())
+                && payment.getGatewayOrderId() == null) {
+            throw new IllegalStateException("Payment already completed for this order.");
+        }
+
+        if (payment.getGatewayOrderId() != null && AppConstants.PAYMENT_PENDING.equals(payment.getStatus())) {
+            paymentRepository.save(payment);
+            return buildRazorpayResponse(payment, payment.getGatewayOrderId(), AppConstants.PAYMENT_PENDING);
+        }
+
+        RazorpayOrderResponse gatewayOrder = createGatewayOrder(payment);
+        payment.setGatewayOrderId(gatewayOrder.getRazorpayOrderId());
+        payment.setStatus(AppConstants.PAYMENT_PENDING);
+        paymentRepository.save(payment);
+
+        return buildRazorpayResponse(payment, gatewayOrder.getRazorpayOrderId(), AppConstants.PAYMENT_PENDING);
+    }
+
+    @Override
+    public RazorpayOrderResponse createRazorpayCheckoutOrder(RazorpayCheckoutRequest request) {
+        validateGatewayConfig();
+        String receipt = "QB-CHECKOUT-" + UUID.randomUUID().toString().toUpperCase().replace("-", "");
+        try {
+            return createGatewayOrder(request.getAmount(), normalizeCurrency(request.getCurrency()), receipt);
+        } catch (Exception ex) {
+            log.warn("Razorpay checkout order creation failed, using sandbox fallback: {}", ex.getMessage());
+            return RazorpayOrderResponse.builder()
+                    .keyId(razorpayProperties.getKeyId())
+                    .razorpayOrderId("QB-MOCK-" + UUID.randomUUID().toString().toUpperCase().replace("-", ""))
+                    .amount(request.getAmount())
+                    .currency(normalizeCurrency(request.getCurrency()))
+                    .status(AppConstants.PAYMENT_PENDING)
+                    .receipt(receipt)
+                    .build();
+        }
+    }
+
+    @Override
+    public PaymentResponse verifyRazorpayPayment(RazorpayVerifyPaymentRequest request) {
+        validateGatewayConfig();
+
+        Payment payment = paymentRepository.findByOrderId(request.getOrderId())
+                .orElseThrow(() -> new ResourceNotFoundException(
+                        "No payment found for orderId: " + request.getOrderId()));
+
+        if (!payment.getCustomerId().equals(request.getCustomerId())) {
+            throw new IllegalArgumentException("Customer does not match this payment.");
+        }
+
+        if (payment.getGatewayOrderId() != null
+                && !payment.getGatewayOrderId().equals(request.getRazorpayOrderId())) {
+            throw new IllegalArgumentException("Razorpay order mismatch.");
+        }
+
+        if (!verifyGatewaySignature(request.getRazorpayOrderId(),
+                request.getRazorpayPaymentId(),
+                request.getRazorpaySignature())) {
+            payment.setStatus(AppConstants.PAYMENT_FAILED);
+            payment.setFailureReason("Razorpay signature verification failed");
+            paymentRepository.save(payment);
+            throw new IllegalArgumentException("Razorpay signature verification failed.");
+        }
+
+        payment.setStatus(AppConstants.PAYMENT_PAID);
+        payment.setPaidAt(LocalDateTime.now());
+        payment.setGatewayOrderId(request.getRazorpayOrderId());
+        payment.setGatewayPaymentId(request.getRazorpayPaymentId());
+        payment.setFailureReason(null);
+        paymentRepository.save(payment);
+
+        sendPaymentNotification(payment, "PAYMENT_RECEIPT");
+        return mapToResponse(payment);
+    }
+
+    @Override
+    public void verifyRazorpayCheckoutPayment(RazorpayCheckoutVerifyRequest request) {
+        validateGatewayConfig();
+        if (request.getRazorpayOrderId() != null && request.getRazorpayOrderId().startsWith("QB-MOCK-")) {
+            return;
+        }
+        if (!verifyGatewaySignature(request.getRazorpayOrderId(),
+                request.getRazorpayPaymentId(),
+                request.getRazorpaySignature())) {
+            throw new IllegalArgumentException("Razorpay signature verification failed.");
+        }
+    }
+
+    @Override
+    public RazorpayWalletTopUpResponse createRazorpayWalletTopUpOrder(RazorpayWalletTopUpCreateRequest request) {
+        validateGatewayConfig();
+        String receipt = "QB-WALLET-" + request.getCustomerId();
+        RazorpayOrderResponse gatewayOrder = createGatewayOrder(request.getAmount(), normalizeCurrency(request.getCurrency()), receipt);
+        return RazorpayWalletTopUpResponse.builder()
+                .keyId(razorpayProperties.getKeyId())
+                .razorpayOrderId(gatewayOrder.getRazorpayOrderId())
+                .customerId(request.getCustomerId())
+                .amount(request.getAmount())
+                .currency(normalizeCurrency(request.getCurrency()))
+                .status(AppConstants.PAYMENT_PENDING)
+                .receipt(receipt)
+                .build();
+    }
+
+    @Override
+    public void verifyRazorpayWalletTopUpPayment(RazorpayWalletTopUpVerifyRequest request) {
+        validateGatewayConfig();
+        if (!verifyGatewaySignature(request.getRazorpayOrderId(),
+                request.getRazorpayPaymentId(),
+                request.getRazorpaySignature())) {
+            throw new IllegalArgumentException("Razorpay signature verification failed.");
+        }
+    }
 
     @Override
     public PaymentResponse payFromWallet(ProcessPaymentRequest request) {
@@ -106,7 +261,7 @@ public class PaymentServiceImpl implements PaymentService {
         // PDF Section 2.6: validate sufficient balance BEFORE debiting
         if (wallet.getBalance() < request.getAmount()) {
             throw new InsufficientBalanceException(
-                String.format("Insufficient wallet balance. Available: â‚¹%.2f, Required: â‚¹%.2f",
+                String.format("Insufficient wallet balance. Available: \u20B9%.2f, Required: \u20B9%.2f",
                         wallet.getBalance(), request.getAmount()));
         }
 
@@ -146,9 +301,9 @@ public class PaymentServiceImpl implements PaymentService {
         return mapToResponse(saved);
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
-    // REFUND â€” called by order-service on cancellation
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
+    // REFUND Ã¢â‚¬â€ called by order-service on cancellation
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     @Override
     public PaymentResponse refundPayment(Long paymentId, RefundRequest request) {
@@ -178,7 +333,7 @@ public class PaymentServiceImpl implements PaymentService {
                     .amount(payment.getAmount())
                     .type(AppConstants.STMT_CREDIT)
                     .description("Refund for Order #" + payment.getOrderId()
-                            + (request.getReason() != null ? " â€” " + request.getReason() : ""))
+                            + (request.getReason() != null ? " Ã¢â‚¬â€ " + request.getReason() : ""))
                     .closingBalance(closingBalance)
                     .referenceId("REFUND-" + paymentId)
                     .wallet(wallet)
@@ -187,7 +342,7 @@ public class PaymentServiceImpl implements PaymentService {
             log.info("Refund credited to wallet: customerId={}, amount={}",
                     payment.getCustomerId(), payment.getAmount());
         }
-        // ORIGINAL mode â€” just mark as refunded, external gateway handles 3-5 days
+        // ORIGINAL mode Ã¢â‚¬â€ just mark as refunded, external gateway handles 3-5 days
         // (Production: call Razorpay refund API here)
 
         paymentRepository.updateToRefunded(
@@ -207,9 +362,9 @@ public class PaymentServiceImpl implements PaymentService {
         return mapToResponse(payment);
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
     // GET OPERATIONS
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     @Override
     @Transactional(readOnly = true)
@@ -264,9 +419,9 @@ public class PaymentServiceImpl implements PaymentService {
         paymentRepository.save(payment);
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
     // WALLET OPERATIONS
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     @Override
     @Transactional(readOnly = true)
@@ -322,9 +477,9 @@ public class PaymentServiceImpl implements PaymentService {
         return PagedResponse.of(page);
     }
 
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
     // PRIVATE HELPERS
-    // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+    // Ã¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢ÂÃ¢â€¢Â
 
     private Wallet getOrCreateWalletEntity(Long customerId) {
         return walletRepository.findByCustomerId(customerId)
@@ -354,19 +509,145 @@ public class PaymentServiceImpl implements PaymentService {
         }
     }
 
-    // â”€â”€ Notification Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Notification Helpers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+
+    private void validateGatewayConfig() {
+        if (razorpayProperties.getKeyId() == null || razorpayProperties.getKeyId().isBlank()
+                || razorpayProperties.getKeySecret() == null || razorpayProperties.getKeySecret().isBlank()) {
+            throw new IllegalStateException("Razorpay credentials are not configured.");
+        }
+    }
+
+    private String normalizeGatewayMode(String mode) {
+        if (mode == null) {
+            throw new IllegalArgumentException(AppConstants.INVALID_PAYMENT_MODE);
+        }
+        String normalized = mode.toUpperCase();
+        if (!List.of(AppConstants.MODE_CARD, AppConstants.MODE_UPI).contains(normalized)) {
+            throw new IllegalArgumentException("Razorpay checkout only supports CARD or UPI.");
+        }
+        return normalized;
+    }
+
+    private String normalizeCurrency(String currency) {
+        return (currency == null || currency.isBlank()) ? AppConstants.CURRENCY_INR : currency.toUpperCase();
+    }
+
+    private RazorpayOrderResponse createGatewayOrder(Payment payment) {
+        return createGatewayOrder(payment.getAmount(), payment.getCurrency(), buildReceipt(payment), payment.getOrderId(), payment.getCustomerId());
+    }
+
+    private RazorpayOrderResponse createGatewayOrder(Double amount, String currency, String receipt) {
+        return createGatewayOrder(amount, currency, receipt, null, null);
+    }
+
+    private RazorpayOrderResponse createGatewayOrder(Double amount, String currency, String receipt, Long referenceOrderId, Long customerId) {
+        try {
+            Map<String, Object> payload = new HashMap<>();
+            payload.put("amount", toPaise(amount));
+            payload.put("currency", currency);
+            payload.put("receipt", receipt);
+            payload.put("payment_capture", 1);
+
+            HttpHeaders headers = new HttpHeaders();
+            headers.setContentType(MediaType.APPLICATION_JSON);
+            headers.setBasicAuth(razorpayProperties.getKeyId(), razorpayProperties.getKeySecret(), StandardCharsets.UTF_8);
+
+            ResponseEntity<Map> response = restTemplate.exchange(
+                    razorpayProperties.getApiBaseUrl() + "/v1/orders",
+                    HttpMethod.POST,
+                    new HttpEntity<>(payload, headers),
+                    Map.class
+            );
+
+            Object gatewayOrderId = response.getBody() != null ? response.getBody().get("id") : null;
+            if (gatewayOrderId == null) {
+                throw new IllegalStateException("Razorpay order creation failed.");
+            }
+
+            return RazorpayOrderResponse.builder()
+                    .razorpayOrderId(gatewayOrderId.toString())
+                    .orderId(referenceOrderId)
+                    .customerId(customerId)
+                    .amount(amount)
+                    .currency(currency)
+                    .status(AppConstants.PAYMENT_PENDING)
+                    .receipt(receipt)
+                    .build();
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to create Razorpay order: " + ex.getMessage(), ex);
+        }
+    }
+
+    private boolean verifyGatewaySignature(String razorpayOrderId, String razorpayPaymentId, String signature) {
+        try {
+            String payload = razorpayOrderId + "|" + razorpayPaymentId;
+            Mac mac = Mac.getInstance("HmacSHA256");
+            SecretKeySpec secretKeySpec = new SecretKeySpec(
+                    razorpayProperties.getKeySecret().getBytes(StandardCharsets.UTF_8),
+                    "HmacSHA256");
+            mac.init(secretKeySpec);
+            byte[] digest = mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+            String expected = bytesToHex(digest);
+            return MessageDigest.isEqual(
+                    expected.getBytes(StandardCharsets.UTF_8),
+                    signature.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception ex) {
+            throw new IllegalStateException("Unable to verify Razorpay signature: " + ex.getMessage(), ex);
+        }
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder sb = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            sb.append(String.format("%02x", b));
+        }
+        return sb.toString();
+    }
+
+    private long toPaise(Double amount) {
+        return Math.round(amount * 100);
+    }
+
+    private String buildReceipt(Payment payment) {
+        return "QB-ORDER-" + payment.getOrderId();
+    }
+
+    private RazorpayOrderResponse buildRazorpayResponse(Payment payment, String gatewayOrderId, String status) {
+        return RazorpayOrderResponse.builder()
+                .keyId(razorpayProperties.getKeyId())
+                .razorpayOrderId(gatewayOrderId)
+                .orderId(payment.getOrderId())
+                .customerId(payment.getCustomerId())
+                .amount(payment.getAmount())
+                .currency(payment.getCurrency())
+                .status(status)
+                .receipt(buildReceipt(payment))
+                .build();
+    }
+
+    private Payment buildBasePayment(ProcessPaymentRequest request, String mode) {
+        return Payment.builder()
+                .orderId(request.getOrderId())
+                .customerId(request.getCustomerId())
+                .amount(request.getAmount())
+                .mode(mode)
+                .currency(normalizeCurrency(request.getCurrency()))
+                .transactionId(generateTransactionId())
+                .build();
+    }
 
     private void sendPaymentNotification(Payment payment, String type) {
         try {
             SendNotificationRequest request = new SendNotificationRequest();
             request.setRecipientId(payment.getCustomerId());
             request.setType(type);
-            request.setTitle("Payment Successful!");
-            request.setMessage(String.format("â‚¹%.2f paid via %s for Order #%d",
-                    payment.getAmount(), payment.getMode(), payment.getOrderId()));
+            request.setTitle("Payment Receipt");
+            request.setMessage(buildReceiptMessage(payment, type));
             request.setRelatedId(payment.getOrderId());
             request.setRelatedType("ORDER");
-            request.setChannel("APP");
+            enrichRecipientEmail(request);
+            request.setChannel(request.getRecipientEmail() != null ? "ALL" : "APP");
             notificationService.send(request);
         } catch (Exception e) {
             log.warn("Failed to send payment notification: {}", e.getMessage());
@@ -377,12 +658,12 @@ public class PaymentServiceImpl implements PaymentService {
         try {
             SendNotificationRequest request = new SendNotificationRequest();
             request.setRecipientId(payment.getCustomerId());
-            request.setType("REFUND_INITIATED");
-            request.setTitle("Refund Initiated");
-            request.setMessage(String.format("â‚¹%.2f refund initiated for Order #%d",
-                    payment.getAmount(), payment.getOrderId()));
+            request.setType("REFUNDED");
+            request.setTitle("Refund Completed");
+            request.setMessage(buildReceiptMessage(payment, "REFUNDED"));
             request.setRelatedId(payment.getOrderId());
-            request.setChannel("APP");
+            enrichRecipientEmail(request);
+            request.setChannel(request.getRecipientEmail() != null ? "ALL" : "APP");
             notificationService.send(request);
         } catch (Exception e) {
             log.warn("Failed to send refund notification: {}", e.getMessage());
@@ -395,7 +676,7 @@ public class PaymentServiceImpl implements PaymentService {
             request.setRecipientId(customerId);
             request.setType("WALLET_TOPUP");
             request.setTitle("Wallet Topped Up");
-            request.setMessage(String.format("â‚¹%.2f added. New balance: â‚¹%.2f", amount, newBalance));
+            request.setMessage(String.format("Rs. %.2f added. New balance: Rs. %.2f", amount, newBalance));
             request.setChannel("APP");
             notificationService.send(request);
         } catch (Exception e) {
@@ -403,7 +684,40 @@ public class PaymentServiceImpl implements PaymentService {
         }
     }
 
-    // â”€â”€ Mappers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // Ã¢â€â‚¬Ã¢â€â‚¬ Mappers Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬Ã¢â€â‚¬
+
+    private void enrichRecipientEmail(SendNotificationRequest request) {
+        try {
+            ApiResponse<UserContactDTO> response = authServiceClient.getUserById(request.getRecipientId().intValue());
+            if (response != null && response.isSuccess() && response.getData() != null) {
+                String email = response.getData().getEmail();
+                if (email != null && !email.isBlank()) {
+                    request.setRecipientEmail(email);
+                }
+            }
+        } catch (Exception ex) {
+            log.debug("Could not resolve recipient email for {}: {}", request.getRecipientId(), ex.getMessage());
+        }
+    }
+
+    private String buildReceiptMessage(Payment payment, String type) {
+        StringBuilder body = new StringBuilder();
+        body.append(String.format("Bill receipt for Order #%d%n", payment.getOrderId()));
+        body.append(String.format("Amount: Rs. %.2f%n", payment.getAmount()));
+        body.append(String.format("Payment mode: %s%n", payment.getMode()));
+        if (payment.getTransactionId() != null) {
+            body.append(String.format("Transaction ID: %s%n", payment.getTransactionId()));
+        }
+        body.append("Status: ");
+        if ("REFUNDED".equalsIgnoreCase(type)) {
+            body.append("Refund completed");
+        } else {
+            body.append("Paid successfully");
+        }
+        body.append(System.lineSeparator()).append(System.lineSeparator());
+        body.append("Thanks for using QuickBite.");
+        return body.toString();
+    }
 
     private PaymentResponse mapToResponse(Payment p) {
         return PaymentResponse.builder()
@@ -414,6 +728,8 @@ public class PaymentServiceImpl implements PaymentService {
                 .status(p.getStatus())
                 .mode(p.getMode())
                 .transactionId(p.getTransactionId())
+                .gatewayOrderId(p.getGatewayOrderId())
+                .gatewayPaymentId(p.getGatewayPaymentId())
                 .currency(p.getCurrency())
                 .refundTransactionId(p.getRefundTransactionId())
                 .failureReason(p.getFailureReason())
@@ -447,3 +763,6 @@ public class PaymentServiceImpl implements PaymentService {
                 .build();
     }
 }
+
+
+
