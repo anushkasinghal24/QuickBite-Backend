@@ -28,8 +28,8 @@ import java.util.List;
  *  GET    /orders/agent/{agentId}              â†’ getOrdersByAgent (AGENT/ADMIN)
  *  GET    /orders/all                          â†’ getAllOrders (ADMIN)
  *  GET    /orders/all/active                   â†’ getAllActiveOrders (ADMIN)
- *  PUT    /orders/{orderId}/status             â†’ updateStatus (OWNER/AGENT/ADMIN)
- *  PUT    /orders/{orderId}/accept             â†’ accept order (OWNER/ADMIN)
+ *  PUT    /orders/{orderId}/status             â†’ updateStatus (OWNER/AGENT only)
+ *  PUT    /orders/{orderId}/accept             â†’ accept order (OWNER only)
  *  PUT    /orders/{orderId}/agent              â†’ assignDeliveryAgent (ADMIN)
  *  PUT    /orders/{orderId}/cancel             â†’ cancelOrder (CUSTOMER/ADMIN)
  *  POST   /orders/{orderId}/reorder            â†’ reorderFromHistory (CUSTOMER)
@@ -118,11 +118,11 @@ public class OrderResource {
     // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     @GetMapping("/restaurant/{restaurantId}")
     @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
-    public ResponseEntity<ApiResponse<List<OrderSummaryDTO>>> getOrdersByRestaurant(
+    public ResponseEntity<ApiResponse<List<OrderResponse>>> getOrdersByRestaurant(
             @PathVariable int restaurantId) {
 
         log.info("GET /orders/restaurant/{}", restaurantId);
-        List<OrderSummaryDTO> orders = orderService.getOrdersByRestaurant(restaurantId);
+        List<OrderResponse> orders = orderService.getOrdersByRestaurant(restaurantId);
         return ResponseEntity.ok(ApiResponse.success(
                 "Restaurant orders fetched (" + orders.size() + ")", orders));
     }
@@ -174,7 +174,7 @@ public class OrderResource {
     // Body: { "status": "CONFIRMED" }
     // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     @PutMapping("/{orderId}/status")
-    @PreAuthorize("hasAnyRole('OWNER','AGENT','ADMIN')")
+    @PreAuthorize("hasAnyRole('OWNER','AGENT')")
     public ResponseEntity<ApiResponse<OrderResponse>> updateStatus(
             @PathVariable int orderId,
             @Valid @RequestBody UpdateOrderStatusRequest request,
@@ -193,7 +193,7 @@ public class OrderResource {
     // Quick action for restaurant owners to confirm an incoming order
     // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     @PutMapping("/{orderId}/accept")
-    @PreAuthorize("hasAnyRole('OWNER','ADMIN')")
+    @PreAuthorize("hasRole('OWNER')")
     public ResponseEntity<ApiResponse<OrderResponse>> acceptOrder(
             @PathVariable int orderId,
             HttpServletRequest httpRequest) {

@@ -42,7 +42,7 @@ public interface OrderService {
     // â”€â”€ Restaurant Queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /** All orders for a restaurant's dashboard */
-    List<OrderSummaryDTO> getOrdersByRestaurant(int restaurantId);
+    List<OrderResponse> getOrdersByRestaurant(int restaurantId);
 
     // â”€â”€ Delivery Agent Queries â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 

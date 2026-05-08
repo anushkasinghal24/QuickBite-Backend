@@ -1,14 +1,16 @@
 server:
-  port: 8085
+  port: ${SERVER_PORT:8085}
 
 spring:
+  config:
+    import: optional:file:.env[.properties]
   application:
-    name: order-service
+    name: ${SPRING_APPLICATION_NAME:order-service}
 
   datasource:
     url: ${QUICKBITE_ORDER_DB_URL:jdbc:mysql://localhost:3306/quickbite_orders?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
     username: ${QUICKBITE_ORDER_DB_USERNAME:root}
-    password: ${QUICKBITE_ORDER_DB_PASSWORD:AnushkaSinghal24}
+    password: ${QUICKBITE_ORDER_DB_PASSWORD:}
     driver-class-name: ${QUICKBITE_ORDER_DB_DRIVER:com.mysql.cj.jdbc.Driver}
 
   jpa:
@@ -24,20 +26,23 @@ spring:
     init:
       mode: never
 
-# ── Eureka ────────────────────────────────────────────────────────────
+  rabbitmq:
+    host: ${QUICKBITE_RABBITMQ_HOST:localhost}
+    port: ${QUICKBITE_RABBITMQ_PORT:5672}
+    username: ${QUICKBITE_RABBITMQ_USERNAME:guest}
+    password: ${QUICKBITE_RABBITMQ_PASSWORD:guest}
+
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: ${QUICKBITE_EUREKA_URL:http://localhost:8761/eureka/}
   instance:
     prefer-ip-address: true
 
-# ── JWT secret — MUST match auth-service exactly ────────────────────
 jwt:
-  secret: ${QUICKBITE_ORDER_JWT_SECRET:dGhpcyBpcyBhIHZlcnkgbG9uZyBzZWNyZXQga2V5IGZvciBxdWlja2JpdGUgcGxhdGZvcm0gand0IHRva2Vu}
-  expiration: 86400000   # 24 hours in ms
+  secret: ${QUICKBITE_ORDER_JWT_SECRET:}
+  expiration: ${QUICKBITE_ORDER_JWT_EXPIRATION:86400000}
 
-# ── Feign Client timeouts ────────────────────────────────────────────
 feign:
   client:
     config:
@@ -45,7 +50,13 @@ feign:
         connectTimeout: 5000
         readTimeout: 10000
 
-# ── Actuator ─────────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
 management:
   endpoints:
     web:

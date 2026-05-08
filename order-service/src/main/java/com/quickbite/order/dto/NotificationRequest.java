@@ -50,6 +50,12 @@ public class NotificationRequest {
     /** Notification channel: APP | EMAIL | SMS */
     private String channel;
 
+    /** Optional recipient email for EMAIL/ALL dispatch. */
+    private String recipientEmail;
+
+    /** Optional recipient phone for SMS/ALL dispatch. */
+    private String recipientPhone;
+
     /** True when the client should play an audio cue for this alert. */
     private Boolean audible;
 }

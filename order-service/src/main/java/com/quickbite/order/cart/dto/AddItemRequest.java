@@ -27,4 +27,14 @@ public class AddItemRequest {
 
     /** Optional: special instructions / customisation */
     private String customization;
+
+    /**
+     * Optional client-side snapshot used when menu-service is temporarily unavailable.
+     * The cart-service still prefers the authoritative menu-service data when reachable.
+     */
+    private String menuItemName;
+    private Double menuItemPrice;
+    private Double menuItemDiscountedPrice;
+    private String menuItemImageUrl;
+    private Boolean isVeg;
 }

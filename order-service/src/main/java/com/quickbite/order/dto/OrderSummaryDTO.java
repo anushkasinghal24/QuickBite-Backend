@@ -28,6 +28,8 @@ public class OrderSummaryDTO {
     private String customerName;
     private int restaurantId;
     private String restaurantName;
+    private Integer deliveryAgentId;
+    private String deliveryAddress;
     private OrderStatus orderStatus;
     private double finalAmount;
     private PaymentMode modeOfPayment;

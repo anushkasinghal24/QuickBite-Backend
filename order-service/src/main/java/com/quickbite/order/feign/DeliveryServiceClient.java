@@ -1,42 +1,38 @@
 package com.quickbite.order.feign;
 
 import com.quickbite.order.dto.ApiResponse;
+import com.quickbite.order.dto.AssignOrderRequest;
+import com.quickbite.order.dto.NearbyAgentDTO;
 import org.springframework.cloud.openfeign.FeignClient;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+
+import java.util.List;
 
 /**
  * DeliveryServiceClient
  *
  * Feign client for delivery-service.
- * Order-service calls delivery-service to:
- *  1. Assign an available nearby agent when order is CONFIRMED
- *  2. Mark delivery complete when agent marks DELIVERED
- *
- * As per PDF Section 4.5:
- *  "On placement, it calls... the Schedule-Service to assign a delivery agent."
- * As per PDF Section 4.7:
- *  "assignOrder(int orderId, int agentId)"
- *  "completeDelivery(int agentId)"
  */
 @FeignClient(name = "delivery-service", fallback = DeliveryServiceClientFallback.class)
 public interface DeliveryServiceClient {
 
-    /**
-     * Assign a delivery agent to an order.
-     * delivery-service will mark the agent as unavailable until delivery is done.
-     */
-    @PostMapping("/agents/{agentId}/assign/{orderId}")
+    @PostMapping("/api/v1/agents/{agentId}/assign-order")
     ApiResponse<Void> assignOrderToAgent(
             @PathVariable("agentId") int agentId,
-            @PathVariable("orderId") int orderId);
+            @RequestBody AssignOrderRequest request);
 
-    /**
-     * Mark the delivery as complete.
-     * delivery-service will free up the agent slot for the next order.
-     */
-    @PutMapping("/agents/{agentId}/complete/{orderId}")
+    @GetMapping("/api/v1/agents/nearby")
+    ApiResponse<List<NearbyAgentDTO>> getNearbyAgents(
+            @RequestParam("lat") Double lat,
+            @RequestParam("lng") Double lng,
+            @RequestParam(value = "radius", required = false) Double radius);
+
+    @PutMapping("/api/v1/agents/{agentId}/complete/{orderId}")
     ApiResponse<Void> completeDelivery(
             @PathVariable("agentId") int agentId,
             @PathVariable("orderId") int orderId);

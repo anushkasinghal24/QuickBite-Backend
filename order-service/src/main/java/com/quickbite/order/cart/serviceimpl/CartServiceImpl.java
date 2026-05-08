@@ -4,10 +4,12 @@ import com.quickbite.order.dto.ApiResponse;
 import com.quickbite.order.dto.RestaurantDTO;
 import com.quickbite.order.cart.dto.*;
 import com.quickbite.order.cart.entity.Cart;
+import com.quickbite.order.cart.entity.CartItemHistory;
 import com.quickbite.order.cart.entity.CartItem;
 import com.quickbite.order.cart.exception.*;
 import com.quickbite.order.cart.feign.MenuServiceClient;
 import com.quickbite.order.feign.RestaurantServiceClient;
+import com.quickbite.order.cart.repository.CartItemHistoryRepository;
 import com.quickbite.order.cart.repository.CartItemRepository;
 import com.quickbite.order.cart.repository.CartRepository;
 import com.quickbite.order.cart.service.CartService;
@@ -33,6 +35,7 @@ public class CartServiceImpl implements CartService {
 
     private final CartRepository cartRepository;
     private final CartItemRepository cartItemRepository;
+    private final CartItemHistoryRepository cartItemHistoryRepository;
     private final MenuServiceClient menuServiceClient;
     private final RestaurantServiceClient restaurantServiceClient;
 
@@ -69,15 +72,21 @@ public class CartServiceImpl implements CartService {
         Cart cart = cartRepository.findByCustomerId(customerId)
                 .orElseGet(() -> createEmptyCart(customerId));
 
-        // Step 2: Validate restaurant switch
-        if (cart.getRestaurantId() != null
-                && cart.getRestaurantId() != request.getRestaurantId()
-                && !cart.isEmpty()) {
-            throw new DifferentRestaurantException(
-                "Your cart already has items from a different restaurant. " +
-                "Please clear your cart before adding items from a new restaurant. " +
-                "[RESTAURANT_CONFLICT:" + cart.getRestaurantId() + "]"
-            );
+        // Step 2: Enforce one restaurant per cart.
+        // If the customer starts ordering from a different restaurant, we
+        // treat it as an explicit cart switch and clear the old items.
+        Integer previousRestaurantId = cart.getRestaurantId();
+        boolean switchingRestaurants = previousRestaurantId != null
+                && !cart.getRestaurantId().equals(request.getRestaurantId())
+                && !cart.isEmpty();
+        if (switchingRestaurants) {
+            cartItemRepository.deleteByCartCartId(cart.getCartId());
+            cart.getItems().clear();
+            cart.setPromoCode(null);
+            cart.setDiscountAmount(0);
+            cart.setRestaurantId(request.getRestaurantId());
+            log.info("Switched cart {} from restaurant {} to {} and cleared previous items",
+                    cart.getCartId(), previousRestaurantId, request.getRestaurantId());
         }
 
         // Step 3: Fetch item from menu-service (with fallback for when menu-service not yet built)
@@ -202,6 +211,7 @@ public class CartServiceImpl implements CartService {
         Cart cart = cartRepository.findByCustomerId(customerId)
                 .orElseGet(() -> createEmptyCart(customerId));
 
+        cartItemRepository.deleteByCartCartId(cart.getCartId());
         cart.getItems().clear();
         cart.setRestaurantId(null);
         cart.setPromoCode(null);
@@ -209,6 +219,42 @@ public class CartServiceImpl implements CartService {
         cart.setTotalPrice(0);
         Cart saved = cartRepository.save(cart);
         return mapToCartResponse(saved);
+    }
+
+    @Override
+    public void archiveCartForOrder(int customerId, int orderId) {
+        Cart cart = cartRepository.findByCustomerId(customerId).orElse(null);
+        if (cart == null || cart.isEmpty()) {
+            return;
+        }
+
+        Integer restaurantId = cart.getRestaurantId();
+        if (restaurantId == null) {
+            return;
+        }
+
+        List<CartItemHistory> historyRows = cart.getItems().stream()
+                .map(item -> CartItemHistory.builder()
+                        .orderId(orderId)
+                        .customerId(customerId)
+                        .cartId(cart.getCartId())
+                        .restaurantId(restaurantId)
+                        .cartItemId(item.getItemId())
+                        .menuItemId(item.getMenuItemId())
+                        .name(item.getName())
+                        .price(item.getPrice())
+                        .quantity(item.getQuantity())
+                        .customization(item.getCustomization())
+                        .veg(item.isVeg())
+                        .imageUrl(item.getImageUrl())
+                        .lineTotal(item.getLineTotal())
+                        .build())
+                .collect(Collectors.toList());
+
+        if (!historyRows.isEmpty()) {
+            cartItemHistoryRepository.saveAll(historyRows);
+            log.info("Archived {} cart item(s) for order #{}", historyRows.size(), orderId);
+        }
     }
 
     // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
@@ -236,6 +282,7 @@ public class CartServiceImpl implements CartService {
                 .orElseGet(() -> createEmptyCart(customerId));
 
         // Clear all items, reset promo, set new restaurant
+        cartItemRepository.deleteByCartCartId(cart.getCartId());
         cart.getItems().clear();
         cart.setRestaurantId(newRestaurantId);
         cart.setPromoCode(null);
@@ -361,16 +408,20 @@ public class CartServiceImpl implements CartService {
         // â”€â”€ FALLBACK STUB (remove once menu-service is built) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         // This allows cart-service to work standalone during development.
         // The stub trusts whatever price/name the client sends.
-        log.warn("Using STUB menu item. Replace with real menu-service call.");
+        log.warn("Using client snapshot for menu item {}.", menuItemId);
         MenuItemDTO stub = new MenuItemDTO();
         stub.setItemId(menuItemId);
         stub.setRestaurantId(request.getRestaurantId());
-        stub.setName("Item #" + menuItemId);
-        stub.setPrice(99.0);           // default stub price
-        stub.setDiscountedPrice(0);
+        stub.setName(request.getMenuItemName() != null && !request.getMenuItemName().isBlank()
+                ? request.getMenuItemName().trim()
+                : "Item #" + menuItemId);
+        double basePrice = request.getMenuItemPrice() != null ? request.getMenuItemPrice() : 99.0;
+        double discounted = request.getMenuItemDiscountedPrice() != null ? request.getMenuItemDiscountedPrice() : 0.0;
+        stub.setPrice(basePrice);
+        stub.setDiscountedPrice(discounted);
         stub.setAvailable(true);
-        stub.setVeg(false);
-        stub.setImageUrl("");
+        stub.setVeg(request.getIsVeg() != null ? request.getIsVeg() : false);
+        stub.setImageUrl(request.getMenuItemImageUrl() != null ? request.getMenuItemImageUrl() : "");
         return stub;
     }
 

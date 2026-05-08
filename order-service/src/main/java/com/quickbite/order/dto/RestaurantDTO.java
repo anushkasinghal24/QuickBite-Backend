@@ -1,13 +1,13 @@
 package com.quickbite.order.dto;
 
+import com.fasterxml.jackson.annotation.JsonAlias;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.*;
 
 /**
  * RestaurantDTO
  *
- * Minimal data fetched from restaurant-service via Feign
- * when placing an order (to validate restaurant is open/approved
- * and to snapshot restaurant name).
+ * Minimal data fetched from restaurant-service via Feign.
  */
 @Getter
 @Setter
@@ -19,8 +19,14 @@ public class RestaurantDTO {
     private int ownerId;
     private String name;
     private String cuisine;
+    @JsonProperty("isOpen")
+    @JsonAlias({"isOpen", "open"})
     private boolean open;
     private boolean approved;
+    private String approvalStatus;
+    private Double latitude;
+    private Double longitude;
+    private Double deliveryRadius;
     private double minOrderAmount;
     private int estimatedDeliveryMin;
 }

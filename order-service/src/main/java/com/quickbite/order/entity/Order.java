@@ -14,7 +14,7 @@ import java.util.List;
  * As per PDF Section 4.5:
  *  orderId, customerId, restaurantId, deliveryAgentId,
  *  totalAmount, discount, finalAmount, modeOfPayment,
- *  orderStatus (PLACED/CONFIRMED/PREPARING/PICKED_UP/DELIVERED/CANCELLED),
+ *  orderStatus (PLACED/CONFIRMED/PREPARING/READY_TO_PICK_UP/PICKED_UP/DELIVERED/CANCELLED),
  *  orderDate, estimatedDelivery, deliveryAddress, specialInstructions
  */
 @Entity
@@ -41,12 +41,12 @@ public class Order {
 
     /**
      * FK reference to Delivery Agent (delivery-service).
-     * NULL until order-service assigns an agent after CONFIRMED.
+     * NULL until order-service assigns an agent after READY_TO_PICK_UP or manual assignment.
      */
     @Column(name = "delivery_agent_id")
     private Integer deliveryAgentId;
 
-    /** Sum of all OrderItem (price Ã— quantity) before discount */
+    /** Sum of all OrderItem (price × quantity) before discount */
     @Column(name = "total_amount", nullable = false)
     private double totalAmount;
 
@@ -69,12 +69,12 @@ public class Order {
 
     /**
      * Order lifecycle status.
-     * PLACED â†’ CONFIRMED â†’ PREPARING â†’ PICKED_UP â†’ DELIVERED
+     * PLACED → CONFIRMED → PREPARING → READY_TO_PICK_UP → PICKED_UP → DELIVERED
      * Also: CANCELLED
      * As per PDF Section 4.5 & 8 (Glossary)
      */
     @Enumerated(EnumType.STRING)
-    @Column(name = "order_status", nullable = false, length = 20)
+    @Column(name = "order_status", nullable = false, length = 30)
     private OrderStatus orderStatus;
 
     /** Timestamp when order was placed */
@@ -110,19 +110,18 @@ public class Order {
 
     /**
      * One-to-Many: An Order contains multiple OrderItems (snapshots of CartItems).
-     * CascadeType.ALL â€” items are saved/deleted with the order.
+     * CascadeType.ALL means items are saved/deleted with the order.
      * As per PDF: OrderItem is an "immutable snapshot of CartItem"
      */
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL,
                orphanRemoval = true, fetch = FetchType.EAGER)
     private List<OrderItem> orderItems = new ArrayList<>();
 
-    // â”€â”€ Enums â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
     public enum OrderStatus {
         PLACED,
         CONFIRMED,
         PREPARING,
+        READY_TO_PICK_UP,
         PICKED_UP,
         DELIVERED,
         CANCELLED
@@ -134,8 +133,6 @@ public class Order {
         UPI,
         WALLET
     }
-
-    // â”€â”€ Convenience â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     /** Recalculate finalAmount from totalAmount and discount */
     public void recalculateFinalAmount() {

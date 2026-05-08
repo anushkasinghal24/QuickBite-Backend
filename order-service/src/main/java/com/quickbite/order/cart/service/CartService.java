@@ -24,8 +24,8 @@ public interface CartService {
      * Add a menu item to the cart.
      *
      * Rules (from PDF):
-     *  - If cart already has items from a DIFFERENT restaurant â†’ throw DifferentRestaurantException
-     *    (frontend shows "Your cart has items from X. Clear cart to add from Y?")
+     *  - Cart is locked to a single restaurant. If the customer adds from a DIFFERENT restaurant,
+     *    the existing cart items are cleared and the cart is switched to the new restaurant.
      *  - If same menuItemId already in cart â†’ increment quantity instead of adding duplicate
      *  - Calls menu-service to fetch item details & snapshot price
      *  - Validates isAvailable = true before adding
@@ -53,6 +53,12 @@ public interface CartService {
     CartResponse clearCart(int customerId);
 
     /**
+     * Archive current cart items for a completed order before the cart is cleared.
+     * This keeps a permanent DB snapshot of what was in the cart at checkout time.
+     */
+    void archiveCartForOrder(int customerId, int orderId);
+
+    /**
      * Calculate and return the current cart total.
      * Returns subtotal (before discount), discountAmount, and finalTotal.
      */
@@ -60,7 +66,7 @@ public interface CartService {
 
     /**
      * Switch restaurant: clears all existing items and sets new restaurantId.
-     * Called when user confirms "Yes, clear cart" on the DifferentRestaurant prompt.
+     * Used by the explicit change-restaurant flow and by addItem() when switching restaurants.
      */
     CartResponse changeRestaurant(int customerId, int newRestaurantId);
 

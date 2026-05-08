@@ -8,11 +8,9 @@ import lombok.*;
  * UpdateOrderStatusRequest
  *
  * Used by Restaurant Owner and Delivery Agent to advance order status.
- * Restaurant Owner: PLACED â†’ CONFIRMED â†’ PREPARING â†’ READY(PICKED_UP)
- * Delivery Agent:   CONFIRMED â†’ PICKED_UP â†’ DELIVERED
+ * Restaurant Owner: PLACED -> CONFIRMED -> PREPARING -> READY_TO_PICK_UP
+ * Delivery Agent:   READY_TO_PICK_UP -> PICKED_UP -> DELIVERED
  * Admin:            Can update to any status
- *
- * As per PDF Section 4.5 & 3.2 (Use Case: Update Order Status)
  */
 @Getter
 @Setter
