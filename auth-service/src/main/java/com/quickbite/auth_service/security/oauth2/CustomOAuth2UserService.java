@@ -12,13 +12,20 @@ import org.springframework.security.oauth2.core.*;
 import org.springframework.security.oauth2.core.user.DefaultOAuth2User;
 import org.springframework.security.oauth2.core.user.OAuth2User;
 import org.springframework.stereotype.Service;
+import org.springframework.web.context.request.RequestContextHolder;
+import org.springframework.web.context.request.ServletRequestAttributes;
 import org.springframework.http.*;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.security.oauth2.client.web.HttpSessionOAuth2AuthorizationRequestRepository;
+import org.springframework.security.oauth2.core.endpoint.OAuth2AuthorizationRequest;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpSession;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Locale;
 
 /**
  * CustomOAuth2UserService
@@ -41,6 +48,8 @@ import java.util.Optional;
 @RequiredArgsConstructor
 @Slf4j
 public class CustomOAuth2UserService extends DefaultOAuth2UserService {
+
+    private static final String ROLE_ATTR = "qb_role";
 
     private final UserRepository userRepository;
 
@@ -80,6 +89,7 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         if (existingByProvider.isPresent()) {
             // RETURNING OAuth2 USER → update profile pic
             user = existingByProvider.get();
+            validateRequestedRole(user, resolveRequestedRole());
             user.setProfilePicUrl(userInfo.getImageUrl());
             // Update name if changed
             if (userInfo.getName() != null) {
@@ -88,21 +98,23 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
         } else {
             // Check if email exists with LOCAL account
             Optional<User> existingByEmail = userRepository.findByEmail(email);
+            Role requestedRole = resolveRequestedRole();
 
             if (existingByEmail.isPresent()) {
                 // Link OAuth2 provider to existing LOCAL account
                 user = existingByEmail.get();
+                validateRequestedRole(user, requestedRole);
                 user.setProvider(provider);
                 user.setProviderId(userInfo.getId());
                 user.setProfilePicUrl(userInfo.getImageUrl());
             } else {
-                // BRAND NEW USER → create with CUSTOMER role
+                // BRAND NEW USER → create with requested role, otherwise default CUSTOMER
                 user = User.builder()
                         .fullName(userInfo.getName() != null ? userInfo.getName() : "QuickBite User")
                         .email(email)
                         .provider(provider)
                         .providerId(userInfo.getId())
-                        .role(Role.CUSTOMER)  // Default role for OAuth2 signups
+                        .role(requestedRole != null ? requestedRole : Role.CUSTOMER)
                         .isActive(true)
                         .profilePicUrl(userInfo.getImageUrl())
                         .build();
@@ -125,6 +137,65 @@ public class CustomOAuth2UserService extends DefaultOAuth2UserService {
                 userRequest.getClientRegistration()
                         .getProviderDetails().getUserInfoEndpoint().getUserNameAttributeName()
         );
+    }
+
+    private Role resolveRequestedRole() {
+        try {
+            if (!(RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attrs)) {
+                return null;
+            }
+
+            HttpServletRequest request = attrs.getRequest();
+            HttpSession session = request.getSession(false);
+            if (session != null) {
+                Object sessionRole = session.getAttribute(ROLE_ATTR);
+                Role roleFromSession = normalizeRequestedRole(sessionRole);
+                if (roleFromSession != null) {
+                    session.removeAttribute(ROLE_ATTR);
+                    return roleFromSession;
+                }
+            }
+
+            OAuth2AuthorizationRequest authRequest =
+                    new HttpSessionOAuth2AuthorizationRequestRepository().loadAuthorizationRequest(request);
+            if (authRequest == null) {
+                return null;
+            }
+
+            Role roleFromAttributes = normalizeRequestedRole(authRequest.getAttributes().get(ROLE_ATTR));
+            if (roleFromAttributes != null) {
+                return roleFromAttributes;
+            }
+
+            return normalizeRequestedRole(authRequest.getAdditionalParameters().get(ROLE_ATTR));
+        } catch (Exception ex) {
+            log.debug("Could not resolve requested OAuth role: {}", ex.getMessage());
+        }
+
+        return null;
+    }
+
+    private Role normalizeRequestedRole(Object roleValue) {
+        if (!(roleValue instanceof String roleName)) {
+            return null;
+        }
+
+        String normalized = roleName.trim().toUpperCase(Locale.ROOT);
+        if ("CUSTOMER".equals(normalized) || "OWNER".equals(normalized) || "AGENT".equals(normalized)) {
+            return Role.valueOf(normalized);
+        }
+
+        return null;
+    }
+
+    private void validateRequestedRole(User user, Role requestedRole) {
+        if (requestedRole == null || user.getRole() == requestedRole) {
+            return;
+        }
+
+        throw new OAuth2AuthenticationException(
+                "Account already exists as " + user.getRole().name() +
+                ". Please use " + user.getRole().name() + " to sign in.");
     }
 
     private String resolveEmail(OAuth2UserRequest userRequest, OAuth2UserInfo userInfo) {

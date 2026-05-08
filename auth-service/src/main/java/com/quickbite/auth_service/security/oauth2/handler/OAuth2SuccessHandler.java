@@ -82,6 +82,8 @@
 
 package com.quickbite.auth_service.security.oauth2.handler;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.quickbite.auth_service.dto.response.AuthResponse;
 import com.quickbite.auth_service.entity.User;
 import com.quickbite.auth_service.repository.UserRepository;
 import com.quickbite.auth_service.security.jwt.JwtUtils;
@@ -108,11 +110,7 @@ import java.nio.charset.StandardCharsets;
  * Frontend reads the params, stores the tokens, and routes the user.
  *
  * Change from original: instead of writing raw JSON to response,
- * we redirect to:
- *   http://localhost:4200/auth/oauth2/callback?token=<accessToken>&refresh=<refreshToken>
- *
- * In production, replace localhost:4200 with your actual frontend URL.
- * Or better: read it from application.yml as app.frontend-url.
+ * we redirect to the Angular frontend callback route with tokens.
  */
 @Component
 @RequiredArgsConstructor
@@ -122,6 +120,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
     private final JwtUtils jwtUtils;
     private final UserRepository userRepository;
     private final RefreshTokenService refreshTokenService;
+    private final ObjectMapper objectMapper;
 
     @Value("${app.frontend-url:http://localhost:4200}")
     private String frontendUrl;

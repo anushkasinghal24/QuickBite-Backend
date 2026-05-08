@@ -1,8 +1,17 @@
 HELP.md
+CHANGES_GUIDE.md
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+.env
+.env.*
+!.env.example
+.env.local
+.env.*.local
+*.local
+*.log
+*.tmp
 
 ### STS ###
 .apt_generated
@@ -31,8 +40,3 @@ build/
 
 ### VS Code ###
 .vscode/
-
-### Secrets ###
-.env
-.env.*
-!.env.example

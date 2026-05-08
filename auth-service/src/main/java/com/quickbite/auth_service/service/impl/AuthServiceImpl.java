@@ -378,13 +378,7 @@ public class AuthServiceImpl implements AuthService {
     @Override
     @Transactional
     public UserResponse updateUserRole(Integer userId, UpdateRoleRequest request) {
-        User user = findUserById(userId);
-        user.setRole(request.getRole());
-        user = userRepository.save(user);
-        // Force re-login so new role takes effect in JWT
-        refreshTokenService.deleteByUser(user);
-        log.info("Admin updated role for user ID: {} to {}", userId, request.getRole());
-        return UserResponse.fromEntity(user);
+        throw new BadRequestException("Changing user roles from the admin dashboard is disabled.");
     }
 
     // ═══════════════════════════════════════════════════════════════════════════

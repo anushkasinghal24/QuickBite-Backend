@@ -1,7 +1,9 @@
 package com.quickbite.auth_service.config;
 
 import com.quickbite.auth_service.security.jwt.JwtAuthenticationFilter;
+import com.quickbite.auth_service.security.oauth2.CustomOAuth2AuthorizationRequestResolver;
 import com.quickbite.auth_service.security.oauth2.CustomOAuth2UserService;
+import com.quickbite.auth_service.security.oauth2.handler.OAuth2FailureHandler;
 import com.quickbite.auth_service.security.oauth2.handler.OAuth2SuccessHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
@@ -15,6 +17,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.config.Customizer;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
@@ -57,10 +60,13 @@ public class SecurityConfig {
     private final UserDetailsServiceImpl  userDetailsService;
     private final CustomOAuth2UserService customOAuth2UserService;
     private final OAuth2SuccessHandler    oAuth2SuccessHandler;
+    private final OAuth2FailureHandler    oAuth2FailureHandler;
+    private final CustomOAuth2AuthorizationRequestResolver oauth2AuthorizationRequestResolver;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
+            .cors(Customizer.withDefaults())
             .csrf(AbstractHttpConfigurer::disable)
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))
@@ -72,6 +78,7 @@ public class SecurityConfig {
                     "/api/v1/auth/refresh",
                     "/api/v1/auth/validate-token"   // Critical: called by Gateway
                 ).permitAll()
+                .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
 
                 // Internal service-to-service: fetch user by ID (no JWT, internal network only)
                 .requestMatchers(HttpMethod.GET,
@@ -101,9 +108,12 @@ public class SecurityConfig {
             )
             // ── OAuth2 Login ──────────────────────────────────────────────────
             .oauth2Login(oauth2 -> oauth2
+                .authorizationEndpoint(auth ->
+                    auth.authorizationRequestResolver(oauth2AuthorizationRequestResolver))
                 .userInfoEndpoint(userInfo ->
                     userInfo.userService(customOAuth2UserService))
                 .successHandler(oAuth2SuccessHandler)
+                .failureHandler(oAuth2FailureHandler)
             )
             // ── JWT Filter ────────────────────────────────────────────────────
             .addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter.class)
