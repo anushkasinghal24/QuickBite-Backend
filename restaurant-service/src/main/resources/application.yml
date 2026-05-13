@@ -1,0 +1,86 @@
+server:
+  port: ${SERVER_PORT:8082}
+
+spring:
+  config:
+    import: optional:file:.env[.properties],optional:configserver:http://localhost:8888
+  application:
+    name: ${SPRING_APPLICATION_NAME:restaurant-service}
+
+  datasource:
+    url: ${QUICKBITE_RESTAURANT_DB_URL:jdbc:mysql://localhost:3306/quickbite_restaurant?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${QUICKBITE_RESTAURANT_DB_USERNAME:root}
+    password: ${QUICKBITE_RESTAURANT_DB_PASSWORD:}
+    driver-class-name: ${QUICKBITE_RESTAURANT_DB_DRIVER:com.mysql.cj.jdbc.Driver}
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: ${QUICKBITE_RESTAURANT_HIBERNATE_DIALECT:org.hibernate.dialect.MySQLDialect}
+        format_sql: true
+
+  data:
+    redis:
+      host: ${QUICKBITE_REDIS_HOST:localhost}
+      port: ${QUICKBITE_REDIS_PORT:6379}
+      timeout: ${QUICKBITE_REDIS_TIMEOUT:2000ms}
+
+  cloud:
+    config:
+      fail-fast: false
+
+  sql:
+    init:
+      mode: never
+
+  rabbitmq:
+    host: ${QUICKBITE_RABBITMQ_HOST:localhost}
+    port: ${QUICKBITE_RABBITMQ_PORT:5672}
+    username: ${QUICKBITE_RABBITMQ_USERNAME:guest}
+    password: ${QUICKBITE_RABBITMQ_PASSWORD:guest}
+
+quickbite:
+  redis:
+    enabled: ${QUICKBITE_REDIS_ENABLED:false}
+  delivery:
+    base-url: ${QUICKBITE_DELIVERY_BASE_URL:http://localhost:8087}
+  notification:
+    base-url: ${QUICKBITE_NOTIFICATION_BASE_URL:http://localhost:8084}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${QUICKBITE_EUREKA_URL:http://localhost:8761/eureka/}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+jwt:
+  secret: ${QUICKBITE_RESTAURANT_JWT_SECRET:}
+  expiration: ${QUICKBITE_RESTAURANT_JWT_EXPIRATION:86400000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+logging:
+  level:
+    com.quickbite.restaurant: DEBUG
+    org.springframework.security: INFO
+    org.hibernate.SQL: DEBUG

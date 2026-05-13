@@ -1,0 +1,131 @@
+server:
+  port: ${SERVER_PORT:8084}
+
+spring:
+  config:
+    import: optional:file:.env[.properties]
+  application:
+    name: ${SPRING_APPLICATION_NAME:payment-service}
+
+  datasource:
+    url: ${QUICKBITE_PAYMENT_DB_URL:jdbc:mysql://localhost:3306/quickbite_payment?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
+    username: ${QUICKBITE_PAYMENT_DB_USERNAME:root}
+    password: ${QUICKBITE_PAYMENT_DB_PASSWORD:}
+    driver-class-name: ${QUICKBITE_PAYMENT_DB_DRIVER:com.mysql.cj.jdbc.Driver}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 5
+      connection-timeout: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: ${QUICKBITE_PAYMENT_HIBERNATE_DIALECT:org.hibernate.dialect.MySQLDialect}
+
+  cloud:
+    config:
+      enabled: false
+
+  sql:
+    init:
+      mode: never
+
+  mail:
+    host: ${QUICKBITE_MAIL_HOST:smtp.gmail.com}
+    port: ${QUICKBITE_MAIL_PORT:587}
+    username: ${QUICKBITE_MAIL_USERNAME:}
+    password: ${QUICKBITE_MAIL_PASSWORD:}
+    default-encoding: UTF-8
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+          connectiontimeout: 5000
+          timeout: 5000
+          writetimeout: 5000
+
+  rabbitmq:
+    host: ${QUICKBITE_RABBITMQ_HOST:localhost}
+    port: ${QUICKBITE_RABBITMQ_PORT:5672}
+    username: ${QUICKBITE_RABBITMQ_USERNAME:guest}
+    password: ${QUICKBITE_RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: true
+    template:
+      mandatory: true
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${QUICKBITE_EUREKA_URL:http://localhost:8761/eureka/}
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+jwt:
+  secret: ${QUICKBITE_PAYMENT_JWT_SECRET:}
+  expiration: ${QUICKBITE_PAYMENT_JWT_EXPIRATION:86400000}
+
+razorpay:
+  key-id: ${RAZORPAY_KEY_ID:}
+  key-secret: ${RAZORPAY_KEY_SECRET:}
+  webhook-secret: ${RAZORPAY_WEBHOOK_SECRET:}
+  api-base-url: ${RAZORPAY_API_BASE_URL:https://api.razorpay.com}
+
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 5000
+        readTimeout: 10000
+  circuitbreaker:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+  health:
+    mail:
+      enabled: false
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+
+logging:
+  level:
+    com.quickbite.payment_service: DEBUG
+    org.springframework.security: INFO
+    org.hibernate.SQL: DEBUG
+
+notification:
+  email:
+    from: "QuickBite <quickbite.noreply@gmail.com>"
+  sms:
+    enabled: false
+  email-enabled: ${QUICKBITE_EMAIL_ENABLED:true}
+
+sms:
+  provider: mock
+  twilio:
+    account-sid: ${TWILIO_ACCOUNT_SID:ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx}
+    auth-token: ${TWILIO_AUTH_TOKEN:}
+    from-number: ${TWILIO_FROM_NUMBER:+1234567890}

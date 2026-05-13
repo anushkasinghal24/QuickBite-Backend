@@ -1,0 +1,259 @@
+server:
+  port: 8080   # Single entry point for entire QuickBite platform
+
+spring:
+  application:
+    name: api-gateway
+
+  config:
+    import: optional:file:./.env[.properties]
+
+
+
+  # ── Config Server (uncomment when Config Server is ready) ────────────────────
+  # config:
+  #   import: optional:configserver:http://localhost:8888
+
+  # ═══════════════════════════════════════════════════════════════════════════
+  # SPRING CLOUD GATEWAY — ROUTE CONFIGURATION
+  #
+  # Each route:
+  #   id       → unique name for the route (for logging/debugging)
+  #   uri      → lb://<service-name> means load-balanced via Eureka
+  #   predicates → which requests match this route
+  #   filters  → what to do before forwarding (rewrite path, add headers, etc.)
+  #
+  # HOW lb:// works:
+  #   Gateway asks Eureka: "Where is auth-service?"
+  #   Eureka returns: "localhost:8081"
+  #   Gateway forwards request to localhost:8081
+  #   This enables zero-config service discovery — no hardcoded URLs!
+  # ═══════════════════════════════════════════════════════════════════════════
+
+  cloud:
+    config:
+      enabled: false
+    gateway:
+      # Global default filters applied to ALL routes
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+
+      routes:
+
+        # ════════════════════════════════════════════════════════════════════
+        # 1. AUTH SERVICE — Port 8081
+        #    Handles: register, login, refresh, validate-token, profile, admin
+        # ════════════════════════════════════════════════════════════════════
+        - id: auth-service
+          uri: lb://auth-service
+          predicates:
+            - Path=/api/v1/auth/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: auth-service-cb
+                fallbackUri: forward:/fallback/auth
+
+        # OAuth2 callbacks also go to auth-service
+        - id: auth-service-oauth2
+          uri: lb://auth-service
+          predicates:
+            - Path=/oauth2/**, /login/oauth2/**
+
+        # ════════════════════════════════════════════════════════════════════
+        # 2. RESTAURANT SERVICE — Port 8082
+        #    Handles: register restaurant, browse, search, approve, toggle
+        #    PUBLIC:  GET /api/v1/restaurants/** (guests can browse)
+        #    PROTECTED: POST/PUT/DELETE (owners and admins only)
+        # ════════════════════════════════════════════════════════════════════
+        - id: restaurant-service
+          uri: lb://restaurant-service
+          predicates:
+            - Path=/api/v1/restaurants/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: restaurant-service-cb
+                fallbackUri: forward:/fallback/restaurant
+
+        # ════════════════════════════════════════════════════════════════════
+        # 3. MENU SERVICE — Port 8083
+        #    Handles: categories, menu items, veg filter, availability toggle
+        #    PUBLIC:  GET /api/v1/menu/** (guests can view menus)
+        #    PROTECTED: POST/PUT/DELETE (owners only)
+        # ════════════════════════════════════════════════════════════════════
+        - id: menu-service
+          uri: lb://restaurant-service
+          predicates:
+            - Path=/api/v1/menu/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: menu-service-cb
+                fallbackUri: forward:/fallback/menu
+
+        # ════════════════════════════════════════════════════════════════════
+        # 4. CART SERVICE — Port 8084
+        #    Base package: com.capgemini.cartservice (from PDF)
+        #    Handles: add to cart, remove, update qty, apply promo, clear
+        #    ALL PROTECTED — only logged-in CUSTOMER
+        # ════════════════════════════════════════════════════════════════════
+        - id: cart-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/v1/cart, /api/v1/cart/**
+          filters:
+            # Cart service controllers are mounted at /cart/**, so strip /api/v1 before forwarding.
+            - StripPrefix=2
+            - name: CircuitBreaker
+              args:
+                name: cart-service-cb
+                fallbackUri: forward:/fallback/cart
+
+        # ════════════════════════════════════════════════════════════════════
+        # 5. ORDER SERVICE — Port 8085
+        #    Base package: com.cg.order.orderservice (from PDF)
+        #    Handles: place order, track, cancel, reorder, update status
+        #    ALL PROTECTED — CUSTOMER places, OWNER updates, AGENT picks up
+        # ════════════════════════════════════════════════════════════════════
+        - id: order-service
+          uri: lb://order-service
+          predicates:
+            - Path=/api/v1/orders, /api/v1/orders/**
+          filters:
+            # Order service controllers are mounted at /orders/**, so strip /api/v1 before forwarding.
+            - StripPrefix=2
+            - name: CircuitBreaker
+              args:
+                name: order-service-cb
+                fallbackUri: forward:/fallback/order
+
+        # ════════════════════════════════════════════════════════════════════
+        # 6. PAYMENT SERVICE — Port 8086
+        #    Handles: process payment, refund, wallet top-up, wallet pay
+        #    ALL PROTECTED — CUSTOMER only
+        # ════════════════════════════════════════════════════════════════════
+        - id: payment-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/v1/payments, /api/v1/payments/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: payment-service-cb
+                fallbackUri: forward:/fallback/payment
+
+        # Wallet endpoints also go to payment-service
+        - id: wallet-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/v1/wallet, /api/v1/wallet/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: payment-service-cb
+                fallbackUri: forward:/fallback/payment
+
+        # ════════════════════════════════════════════════════════════════════
+        # 7. DELIVERY SERVICE — Port 8087
+        #    Handles: agent registration, location update, assign order
+        #    PROTECTED — AGENT updates location, ADMIN verifies
+        # ════════════════════════════════════════════════════════════════════
+        - id: delivery-service
+          uri: lb://delivery-service
+          predicates:
+            - Path=/api/v1/agents/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: delivery-service-cb
+                fallbackUri: forward:/fallback/delivery
+
+        # ════════════════════════════════════════════════════════════════════
+        # 8. REVIEW SERVICE — Port 8088
+        #    Handles: submit review, get reviews, avg ratings
+        #    POST/PUT/DELETE PROTECTED — CUSTOMER only
+        #    GET — public (anyone can read restaurant reviews)
+        # ════════════════════════════════════════════════════════════════════
+        - id: review-service
+          uri: lb://restaurant-service
+          predicates:
+            - Path=/api/v1/reviews/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: review-service-cb
+                fallbackUri: forward:/fallback/review
+
+        # ════════════════════════════════════════════════════════════════════
+        # 9. NOTIFICATION SERVICE — Port 8089
+        #    Handles: get notifications, mark read, unread count, send bulk
+        #    ALL PROTECTED — each user sees only their notifications
+        # ════════════════════════════════════════════════════════════════════
+        - id: notification-service
+          uri: lb://payment-service
+          predicates:
+            - Path=/api/v1/notifications, /api/v1/notifications/**
+          filters:
+            - name: CircuitBreaker
+              args:
+                name: notification-service-cb
+                fallbackUri: forward:/fallback/notification
+
+        # ════════════════════════════════════════════════════════════════════
+        # 10. QUICKBITE WEB (Thymeleaf MVC) — Port 8090
+        #     Handles: HTML pages rendered by Spring MVC + Thymeleaf
+        #     Routes all web UI requests to the MVC layer
+        # ════════════════════════════════════════════════════════════════════
+        - id: quickbite-web
+          uri: lb://quickbite-web
+          predicates:
+            - Path=/web/**, /home, /register, /login-page, /restaurant/**, /order/**
+
+      # ── Resilience4J Circuit Breaker Config ─────────────────────────────────
+      # Prevents cascade failures when a service goes down
+      resilience4j:
+        circuitbreaker:
+          configs:
+            default:
+              slidingWindowSize: 10
+              minimumNumberOfCalls: 5
+              failureRateThreshold: 50
+              waitDurationInOpenState: 10s
+
+# ── Eureka Client ─────────────────────────────────────────────────────────────
+eureka:
+  client:
+    service-url:
+      defaultZone: http://localhost:8761/eureka/
+    fetch-registry: true
+    register-with-eureka: true
+  instance:
+    prefer-ip-address: true
+    instance-id: ${spring.application.name}:${server.port}
+
+# ── JWT Secret ────────────────────────────────────────────────────────────────
+# MUST be SAME as auth-service jwt.secret
+# In production → store in Config Server / Vault, NOT here
+app:
+  jwt:
+    secret: ${QUICKBITE_GATEWAY_JWT_SECRET}
+
+# ── Actuator ──────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, gateway, routes
+  endpoint:
+    health:
+      show-details: always
+    gateway:
+      enabled: true   # Enables /actuator/gateway/routes for debugging
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+logging:
+  level:
+    com.quickbite.gateway: DEBUG
+    org.springframework.cloud.gateway: INFO
+    reactor.netty: INFO
