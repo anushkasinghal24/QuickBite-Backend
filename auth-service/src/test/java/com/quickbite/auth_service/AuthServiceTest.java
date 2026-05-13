@@ -16,9 +16,20 @@ import static org.assertj.core.api.Assertions.*;
  * AuthServiceTest — Integration tests for Auth Service
  *
  * Run with: mvn test
- * Requires: MySQL running with quickbite_auth_test database
  */
-@SpringBootTest
+@SpringBootTest(properties = {
+        "spring.security.oauth2.client.registration.google.client-id=dummy-google-client-id",
+        "spring.security.oauth2.client.registration.google.client-secret=dummy-google-client-secret",
+        "spring.security.oauth2.client.registration.google.scope=email,profile",
+
+        "spring.security.oauth2.client.registration.github.client-id=dummy-github-client-id",
+        "spring.security.oauth2.client.registration.github.client-secret=dummy-github-client-secret",
+        "spring.security.oauth2.client.registration.github.scope=user:email,read:user",
+
+        "app.jwt.secret=dGhpcy1pcy1hLXRlc3Qtand0LXNlY3JldC1rZXktZm9yLXF1aWNrYml0ZS1hdXRoLXNlcnZpY2U=",
+        "app.jwt.expiration-ms=86400000",
+        "app.jwt.refresh-expiration-ms=604800000"
+})
 @ActiveProfiles("test")
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class AuthServiceTest {
@@ -26,7 +37,7 @@ class AuthServiceTest {
     @Autowired
     private AuthService authService;
 
-    private static final String TEST_EMAIL    = "test_" + System.currentTimeMillis() + "@quickbite.com";
+    private static final String TEST_EMAIL = "test_" + System.currentTimeMillis() + "@quickbite.com";
     private static final String TEST_PASSWORD = "Test@1234";
     private static String accessToken;
 
@@ -70,6 +81,8 @@ class AuthServiceTest {
     @Order(3)
     @DisplayName("Validate JWT token returns valid=true")
     void testValidateToken() {
+        assertThat(accessToken).isNotBlank();
+
         var result = authService.validateToken(accessToken);
 
         assertThat(result.getValid()).isTrue();
@@ -97,6 +110,7 @@ class AuthServiceTest {
         req.setFullName("Duplicate User");
         req.setEmail(TEST_EMAIL);
         req.setPassword(TEST_PASSWORD);
+        req.setPhone("9876543210");
         req.setRole(Role.CUSTOMER);
 
         assertThatThrownBy(() -> authService.register(req))
