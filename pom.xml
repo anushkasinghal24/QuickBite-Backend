@@ -22,6 +22,7 @@
     </modules>
 
     <properties>
+        <argLine></argLine>
         <sonar.organization>anushkasinghal24</sonar.organization>
         <sonar.host.url>https://sonarcloud.io</sonar.host.url>
     </properties>
@@ -42,6 +43,7 @@
 
                 <execution>
                     <id>report-aggregate</id>
+                    <inherited>false</inherited>
                     <phase>verify</phase>
                     <goals>
                         <goal>report-aggregate</goal>
