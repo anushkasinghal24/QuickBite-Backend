@@ -22,6 +22,7 @@
         <java.version>17</java.version>
         <spring-cloud.version>2023.0.1</spring-cloud.version>
         <start-class>com.quickbite.restaurant.RestaurantServiceApplication</start-class>
+        <sonar.organization>anushkasinghal24</sonar.organization>
     </properties>
 
     <dependencyManagement>

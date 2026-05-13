@@ -21,6 +21,7 @@
     <properties>
         <java.version>17</java.version>
         <spring-cloud.version>2023.0.1</spring-cloud.version>
+        <sonar.organization>anushkasinghal24</sonar.organization>
     </properties>
 
     <dependencyManagement>

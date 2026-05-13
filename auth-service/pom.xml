@@ -22,6 +22,7 @@
         <java.version>17</java.version>
         <jjwt.version>0.11.5</jjwt.version>
         <spring-cloud.version>2023.0.1</spring-cloud.version>
+        <sonar.organization>anushkasinghal24</sonar.organization>
     </properties>
 
     <dependencyManagement>
