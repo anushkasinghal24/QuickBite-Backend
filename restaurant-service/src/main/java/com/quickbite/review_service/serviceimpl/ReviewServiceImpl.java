@@ -13,6 +13,7 @@ import com.quickbite.review_service.service.ReviewService;
 import com.quickbite.restaurant.service.RestaurantService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -48,6 +49,8 @@ public class ReviewServiceImpl implements ReviewService {
     private final DeliveryServiceClient deliveryServiceClient;
     private final NotificationServiceClient notificationServiceClient;
     private final RabbitNotificationPublisher rabbitNotificationPublisher;
+    @Lazy
+    private final ReviewService self;
 
     // ═══════════════════════════════════════════════════════════════════
     // 1. ADD REVIEW
@@ -314,7 +317,7 @@ public class ReviewServiceImpl implements ReviewService {
     @Override
     @Transactional(readOnly = true)
     public RatingAverageResponse getRestaurantRatingSummary(Integer restaurantId) {
-        Double avg   = getAvgFoodRating(restaurantId);
+        Double avg   = self.getAvgFoodRating(restaurantId);
         long total   = reviewRepository.countByRestaurantId(restaurantId);
         return RatingAverageResponse.builder()
                 .entityId(restaurantId)
@@ -331,7 +334,7 @@ public class ReviewServiceImpl implements ReviewService {
     @Override
     @Transactional(readOnly = true)
     public RatingAverageResponse getAgentRatingSummary(Integer agentId) {
-        Double avg   = getAvgDeliveryRating(agentId);
+        Double avg   = self.getAvgDeliveryRating(agentId);
         long total   = reviewRepository.countByAgentId(agentId);
         return RatingAverageResponse.builder()
                 .entityId(agentId)
@@ -406,7 +409,7 @@ public class ReviewServiceImpl implements ReviewService {
      */
     private void pushFoodRatingToRestaurant(Integer restaurantId) {
         try {
-            Double avg = getAvgFoodRating(restaurantId);
+            Double avg = self.getAvgFoodRating(restaurantId);
             com.quickbite.restaurant.dto.request.UpdateRatingRequest updateRatingRequest =
                     new com.quickbite.restaurant.dto.request.UpdateRatingRequest();
             updateRatingRequest.setAvgRating(avg);
@@ -426,7 +429,7 @@ public class ReviewServiceImpl implements ReviewService {
      */
     private void pushDeliveryRatingToAgent(Integer agentId) {
         try {
-            Double avg = getAvgDeliveryRating(agentId);
+            Double avg = self.getAvgDeliveryRating(agentId);
             deliveryServiceClient.updateAgentRating(agentId, Map.of("avgRating", avg));
             log.info("Pushed avgDeliveryRating={} to delivery-service for agentId={}",
                     avg, agentId);
