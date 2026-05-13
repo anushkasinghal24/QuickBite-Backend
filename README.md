@@ -250,3 +250,6 @@ cd ../eureka-server && mvn clean test
 
 This README is designed for the current multi-service backend layout and is ready to be pushed to `main`.
 
+# Merged with main
+
+
