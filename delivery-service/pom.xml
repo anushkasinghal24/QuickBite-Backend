@@ -160,13 +160,6 @@
                     </excludes>
                 </configuration>
             </plugin>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-surefire-plugin</artifactId>
-                <configuration>
-                    <argLine>${argLine} -XX:+EnableDynamicAgentLoading -Xshare:off</argLine>
-                </configuration>
-            </plugin>
         </plugins>
     </build>
 
