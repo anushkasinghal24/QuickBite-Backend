@@ -55,4 +55,10 @@ jobs:
           QUICKBITE_JWT_SECRET: ${{ secrets.QUICKBITE_JWT_SECRET }}
           QUICKBITE_FRONTEND_URL: ${{ secrets.QUICKBITE_FRONTEND_URL }}
 
-        run: mvn -B verify -Dspring.profiles.active=test org.sonarsource.scanner.maven:sonar-maven-plugin:sonar -Dsonar.projectKey=anushkasinghal24_QuickBite-Backend
+        run: |
+          mvn -B clean verify -Dspring.profiles.active=test
+          mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
+            -Dsonar.projectKey=anushkasinghal24_QuickBite-Backend \
+            -Dsonar.organization=anushkasinghal24 \
+            -Dsonar.host.url=https://sonarcloud.io \
+            -Dsonar.coverage.jacoco.xmlReportPaths=**/target/site/jacoco/jacoco.xml
