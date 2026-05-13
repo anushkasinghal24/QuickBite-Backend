@@ -38,7 +38,7 @@ jobs:
           key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
           restore-keys: ${{ runner.os }}-m2
 
-      - name: Build and analyze
+      - name: Build, test and analyze
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
@@ -57,8 +57,13 @@ jobs:
 
         run: |
           mvn -B clean verify -Dspring.profiles.active=test
+
+          echo "Searching JaCoCo reports..."
+          find . -name "jacoco.xml" -print
+          find . -type d -name "jacoco*" -print
+
           mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:sonar \
             -Dsonar.projectKey=anushkasinghal24_QuickBite-Backend \
             -Dsonar.organization=anushkasinghal24 \
             -Dsonar.host.url=https://sonarcloud.io \
-            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco-aggregate/jacoco.xml
+            -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco-aggregate/jacoco.xml,**/target/site/jacoco/jacoco.xml
