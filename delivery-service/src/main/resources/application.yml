@@ -13,10 +13,10 @@ spring:
 
   # ── Database ─────────────────────────────────────────────────────────────────
   datasource:
-    url: ${QUICKBITE_DELIVERY_DB_URL:jdbc:mysql://localhost:3306/quickbite_delivery?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}
-    username: ${QUICKBITE_DELIVERY_DB_USERNAME:root}
-    password: ${QUICKBITE_DELIVERY_DB_PASSWORD:}
-    driver-class-name: ${QUICKBITE_DELIVERY_DB_DRIVER:com.mysql.cj.jdbc.Driver}
+    url: ${SPRING_DATASOURCE_URL:${QUICKBITE_DELIVERY_DB_URL:jdbc:mysql://localhost:3306/quickbite_delivery?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC}}
+    username: ${SPRING_DATASOURCE_USERNAME:${QUICKBITE_DELIVERY_DB_USERNAME:root}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${QUICKBITE_DELIVERY_DB_PASSWORD:}}
+    driver-class-name: ${SPRING_DATASOURCE_DRIVER_CLASS_NAME:${QUICKBITE_DELIVERY_DB_DRIVER:com.mysql.cj.jdbc.Driver}}
     hikari:
       maximum-pool-size: 10
       minimum-idle: 5
@@ -28,7 +28,7 @@ spring:
     show-sql: true
     properties:
       hibernate:
-        dialect: ${QUICKBITE_DELIVERY_HIBERNATE_DIALECT:org.hibernate.dialect.MySQLDialect}
+        dialect: ${SPRING_JPA_HIBERNATE_DIALECT:${QUICKBITE_DELIVERY_HIBERNATE_DIALECT:org.hibernate.dialect.MySQLDialect}}
         format_sql: true
 
   sql:
