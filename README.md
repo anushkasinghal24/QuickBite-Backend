@@ -247,6 +247,7 @@ Use this flow to deploy the backend on Render as separate services.
 2. Deploy `eureka-server` first.
 3. In Render, create a new `Web Service` from the repo and point it to `QuickBite-Backend/eureka-server`.
 4. Choose `Docker` as the runtime. Render will use the `Dockerfile` in that folder.
+5. Use the repository root as the build context so the Dockerfile can access `eureka-server/src`.
 5. Set these environment variables for Eureka:
    - `PORT` is managed by Render automatically.
    - `EUREKA_CLIENT_REGISTER_WITH_EUREKA=false`
