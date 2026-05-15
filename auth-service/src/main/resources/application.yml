@@ -1,5 +1,5 @@
 server:
-  port: 8081                          # auth-service runs on 8081
+  port: ${PORT:${SERVER_PORT:8081}}   # Render injects PORT; local fallback stays 8081
 
 spring:
   config:

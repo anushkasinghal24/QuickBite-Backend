@@ -1,5 +1,5 @@
 server:
-  port: 8080   # Single entry point for entire QuickBite platform
+  port: ${PORT:${SERVER_PORT:8080}}   # Render injects PORT; local fallback stays 8080
 
 spring:
   application:

@@ -239,6 +239,114 @@ cd ../api-gateway && mvn clean test
 cd ../eureka-server && mvn clean test
 ```
 
+## Render Deployment
+
+Use this flow to deploy the backend on Render as separate services.
+
+1. Push the backend repo to GitHub.
+2. Deploy `eureka-server` first.
+3. In Render, create a new `Web Service` from the repo and point it to `QuickBite-Backend/eureka-server`.
+4. Choose `Docker` as the runtime. Render will use the `Dockerfile` in that folder.
+5. Set these environment variables for Eureka:
+   - `PORT` is managed by Render automatically.
+   - `EUREKA_CLIENT_REGISTER_WITH_EUREKA=false`
+   - `EUREKA_CLIENT_FETCH_REGISTRY=false`
+6. Deploy and copy the public Render URL, for example `https://quickbite-eureka-server.onrender.com`.
+7. Deploy the remaining services one by one using the same repo and their own folders:
+   - `api-gateway`
+   - `auth-service`
+   - `restaurant-service`
+   - `order-service`
+   - `payment-service`
+   - `delivery-service`
+8. For every service except Eureka, set `QUICKBITE_EUREKA_URL` to the Eureka public URL plus `/eureka/`.
+9. Add the required database, RabbitMQ, Redis, JWT, and Razorpay secrets in each service.
+10. After deploy, point the frontend to the Render API Gateway URL.
+
+### Suggested Render Service Order
+
+1. `eureka-server`
+2. `auth-service`
+3. `restaurant-service`
+4. `order-service`
+5. `payment-service`
+6. `delivery-service`
+7. `api-gateway`
+
+### Minimum Env Vars By Service
+
+`eureka-server`
+
+- `EUREKA_CLIENT_REGISTER_WITH_EUREKA=false`
+- `EUREKA_CLIENT_FETCH_REGISTRY=false`
+
+`auth-service`
+
+- `QUICKBITE_EUREKA_URL`
+- `QUICKBITE_AUTH_DB_URL`
+- `QUICKBITE_AUTH_DB_USERNAME`
+- `QUICKBITE_AUTH_DB_PASSWORD`
+- `QUICKBITE_AUTH_JWT_SECRET`
+- `QUICKBITE_FRONTEND_URL`
+- `QUICKBITE_GOOGLE_CLIENT_ID`
+- `QUICKBITE_GOOGLE_CLIENT_SECRET`
+
+`restaurant-service`
+
+- `QUICKBITE_EUREKA_URL`
+- `QUICKBITE_RESTAURANT_DB_URL`
+- `QUICKBITE_RESTAURANT_DB_USERNAME`
+- `QUICKBITE_RESTAURANT_DB_PASSWORD`
+- `QUICKBITE_RESTAURANT_JWT_SECRET`
+- `QUICKBITE_RABBITMQ_HOST`
+- `QUICKBITE_RABBITMQ_USERNAME`
+- `QUICKBITE_RABBITMQ_PASSWORD`
+- `QUICKBITE_REDIS_HOST`
+- `QUICKBITE_REDIS_PORT`
+
+`order-service`
+
+- `QUICKBITE_EUREKA_URL`
+- `QUICKBITE_ORDER_DB_URL`
+- `QUICKBITE_ORDER_DB_USERNAME`
+- `QUICKBITE_ORDER_DB_PASSWORD`
+- `QUICKBITE_ORDER_JWT_SECRET`
+- `QUICKBITE_RABBITMQ_HOST`
+- `QUICKBITE_RABBITMQ_USERNAME`
+- `QUICKBITE_RABBITMQ_PASSWORD`
+
+`payment-service`
+
+- `QUICKBITE_EUREKA_URL`
+- `QUICKBITE_PAYMENT_DB_URL`
+- `QUICKBITE_PAYMENT_DB_USERNAME`
+- `QUICKBITE_PAYMENT_DB_PASSWORD`
+- `QUICKBITE_PAYMENT_JWT_SECRET`
+- `QUICKBITE_RABBITMQ_HOST`
+- `QUICKBITE_RABBITMQ_USERNAME`
+- `QUICKBITE_RABBITMQ_PASSWORD`
+- `RAZORPAY_KEY_ID`
+- `RAZORPAY_KEY_SECRET`
+- `RAZORPAY_WEBHOOK_SECRET`
+- `QUICKBITE_MAIL_USERNAME`
+- `QUICKBITE_MAIL_PASSWORD`
+
+`delivery-service`
+
+- `QUICKBITE_EUREKA_URL`
+- `QUICKBITE_DELIVERY_DB_URL`
+- `QUICKBITE_DELIVERY_DB_USERNAME`
+- `QUICKBITE_DELIVERY_DB_PASSWORD`
+- `QUICKBITE_DELIVERY_JWT_SECRET`
+- `QUICKBITE_RABBITMQ_HOST`
+- `QUICKBITE_RABBITMQ_USERNAME`
+- `QUICKBITE_RABBITMQ_PASSWORD`
+
+`api-gateway`
+
+- `QUICKBITE_EUREKA_URL`
+- `QUICKBITE_GATEWAY_JWT_SECRET`
+
 ## Notes
 
 - All services register with Eureka for discovery.

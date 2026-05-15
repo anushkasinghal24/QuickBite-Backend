@@ -1,5 +1,5 @@
 server:
-  port: 8087                          # delivery-service port (as per API Gateway config)
+  port: ${PORT:${SERVER_PORT:8087}}   # Render injects PORT; local fallback stays 8087
 
 spring:
   config:
