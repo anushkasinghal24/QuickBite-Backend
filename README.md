@@ -347,6 +347,11 @@ Use this flow to deploy the backend on Render as separate services.
 
 - `QUICKBITE_EUREKA_URL`
 - `QUICKBITE_GATEWAY_JWT_SECRET`
+- `QUICKBITE_AUTH_SERVICE_URI` optional, direct fallback URL for auth service
+- `QUICKBITE_RESTAURANT_SERVICE_URI` optional, direct fallback URL for restaurant service
+- `QUICKBITE_ORDER_SERVICE_URI` optional, direct fallback URL for order service
+- `QUICKBITE_PAYMENT_SERVICE_URI` optional, direct fallback URL for payment service
+- `QUICKBITE_DELIVERY_SERVICE_URI` optional, direct fallback URL for delivery service
 
 ## Notes
 

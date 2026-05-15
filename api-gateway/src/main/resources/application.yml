@@ -45,7 +45,7 @@ spring:
         #    Handles: register, login, refresh, validate-token, profile, admin
         # ════════════════════════════════════════════════════════════════════
         - id: auth-service
-          uri: lb://auth-service
+          uri: ${QUICKBITE_AUTH_SERVICE_URI:lb://auth-service}
           predicates:
             - Path=/api/v1/auth/**
           filters:
@@ -56,9 +56,10 @@ spring:
 
         # OAuth2 callbacks also go to auth-service
         - id: auth-service-oauth2
-          uri: lb://auth-service
+          uri: ${QUICKBITE_AUTH_SERVICE_URI:lb://auth-service}
           predicates:
-            - Path=/oauth2/**, /login/oauth2/**
+            - Path=/oauth2/**
+            - Path=/login/oauth2/**
 
         # ════════════════════════════════════════════════════════════════════
         # 2. RESTAURANT SERVICE — Port 8082
@@ -67,7 +68,7 @@ spring:
         #    PROTECTED: POST/PUT/DELETE (owners and admins only)
         # ════════════════════════════════════════════════════════════════════
         - id: restaurant-service
-          uri: lb://restaurant-service
+          uri: ${QUICKBITE_RESTAURANT_SERVICE_URI:lb://restaurant-service}
           predicates:
             - Path=/api/v1/restaurants/**
           filters:
@@ -83,7 +84,7 @@ spring:
         #    PROTECTED: POST/PUT/DELETE (owners only)
         # ════════════════════════════════════════════════════════════════════
         - id: menu-service
-          uri: lb://restaurant-service
+          uri: ${QUICKBITE_RESTAURANT_SERVICE_URI:lb://restaurant-service}
           predicates:
             - Path=/api/v1/menu/**
           filters:
@@ -99,7 +100,7 @@ spring:
         #    ALL PROTECTED — only logged-in CUSTOMER
         # ════════════════════════════════════════════════════════════════════
         - id: cart-service
-          uri: lb://order-service
+          uri: ${QUICKBITE_ORDER_SERVICE_URI:lb://order-service}
           predicates:
             - Path=/api/v1/cart, /api/v1/cart/**
           filters:
@@ -117,7 +118,7 @@ spring:
         #    ALL PROTECTED — CUSTOMER places, OWNER updates, AGENT picks up
         # ════════════════════════════════════════════════════════════════════
         - id: order-service
-          uri: lb://order-service
+          uri: ${QUICKBITE_ORDER_SERVICE_URI:lb://order-service}
           predicates:
             - Path=/api/v1/orders, /api/v1/orders/**
           filters:
@@ -134,7 +135,7 @@ spring:
         #    ALL PROTECTED — CUSTOMER only
         # ════════════════════════════════════════════════════════════════════
         - id: payment-service
-          uri: lb://payment-service
+          uri: ${QUICKBITE_PAYMENT_SERVICE_URI:lb://payment-service}
           predicates:
             - Path=/api/v1/payments, /api/v1/payments/**
           filters:
@@ -145,7 +146,7 @@ spring:
 
         # Wallet endpoints also go to payment-service
         - id: wallet-service
-          uri: lb://payment-service
+          uri: ${QUICKBITE_PAYMENT_SERVICE_URI:lb://payment-service}
           predicates:
             - Path=/api/v1/wallet, /api/v1/wallet/**
           filters:
@@ -160,7 +161,7 @@ spring:
         #    PROTECTED — AGENT updates location, ADMIN verifies
         # ════════════════════════════════════════════════════════════════════
         - id: delivery-service
-          uri: lb://delivery-service
+          uri: ${QUICKBITE_DELIVERY_SERVICE_URI:lb://delivery-service}
           predicates:
             - Path=/api/v1/agents/**
           filters:
@@ -176,7 +177,7 @@ spring:
         #    GET — public (anyone can read restaurant reviews)
         # ════════════════════════════════════════════════════════════════════
         - id: review-service
-          uri: lb://restaurant-service
+          uri: ${QUICKBITE_RESTAURANT_SERVICE_URI:lb://restaurant-service}
           predicates:
             - Path=/api/v1/reviews/**
           filters:
@@ -191,7 +192,7 @@ spring:
         #    ALL PROTECTED — each user sees only their notifications
         # ════════════════════════════════════════════════════════════════════
         - id: notification-service
-          uri: lb://payment-service
+          uri: ${QUICKBITE_PAYMENT_SERVICE_URI:lb://payment-service}
           predicates:
             - Path=/api/v1/notifications, /api/v1/notifications/**
           filters:
@@ -225,7 +226,7 @@ spring:
 eureka:
   client:
     service-url:
-      defaultZone: http://localhost:8761/eureka/
+      defaultZone: ${QUICKBITE_EUREKA_URL:http://localhost:8761/eureka/}
     fetch-registry: true
     register-with-eureka: true
   instance:
