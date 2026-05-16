@@ -239,6 +239,7 @@ eureka:
 app:
   jwt:
     secret: ${QUICKBITE_GATEWAY_JWT_SECRET}
+  frontend-url: ${QUICKBITE_FRONTEND_URL:http://localhost:4200}
 
 # ── Actuator ──────────────────────────────────────────────────────────────────
 management:

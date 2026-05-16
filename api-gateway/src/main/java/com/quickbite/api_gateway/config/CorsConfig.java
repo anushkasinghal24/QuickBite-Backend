@@ -1,5 +1,6 @@
 package com.quickbite.api_gateway.config;
 
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.cors.CorsConfiguration;
@@ -27,15 +28,17 @@ import java.util.List;
 @EnableWebFlux
 public class CorsConfig {
 
+    @Value("${app.frontend-url:http://localhost:4200}")
+    private String frontendUrl;
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration corsConfig = new CorsConfiguration();
 
         // Frontend origins allowed to call the API
-        // Allow the common local dev origins plus any localhost/127.0.0.1 port.
-        // This keeps registration and login working even if the frontend runs on
-        // a different dev port than the one listed in the static config.
+        // Allow the deployed Vercel frontend plus local dev origins.
         corsConfig.setAllowedOriginPatterns(List.of(
+                frontendUrl,
                 "http://localhost:*",
                 "http://127.0.0.1:*"
         ));
