@@ -68,11 +68,12 @@ spring:
 eureka:
   client:
     service-url:
-      defaultZone: ${QUICKBITE_EUREKA_URL:http://localhost:8761/eureka/}     # ← Your Eureka Server
+      defaultZone: ${QUICKBITE_EUREKA_URL}     # ← Your Eureka Server
     fetch-registry: true
     register-with-eureka: true
   instance:
     prefer-ip-address: true
+    hostname: ${RENDER_EXTERNAL_HOSTNAME:${HOSTNAME:localhost}}
     instance-id: ${spring.application.name}:${server.port}
 
 # ── JWT Configuration ─────────────────────────────────────────────────────────
