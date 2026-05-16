@@ -226,13 +226,17 @@ spring:
 eureka:
   client:
     service-url:
-      defaultZone: ${QUICKBITE_EUREKA_URL}
-    fetch-registry: true
-    register-with-eureka: true
+      defaultZone: ${QUICKBITE_EUREKA_URL:https://quickbite-eureka-server.onrender.com/eureka/}
+    fetch-registry: ${EUREKA_CLIENT_FETCH_REGISTRY:true}
+    register-with-eureka: ${EUREKA_CLIENT_REGISTER_WITH_EUREKA:true}
+    registry-fetch-interval-seconds: 5
+    initial-instance-info-replication-interval-seconds: 5
   instance:
     prefer-ip-address: true
     hostname: ${RENDER_EXTERNAL_HOSTNAME:${HOSTNAME:localhost}}
     instance-id: ${spring.application.name}:${server.port}
+    lease-renewal-interval-in-seconds: 10
+    lease-expiration-duration-in-seconds: 30
 
 # ── JWT Secret ────────────────────────────────────────────────────────────────
 # MUST be SAME as auth-service jwt.secret
