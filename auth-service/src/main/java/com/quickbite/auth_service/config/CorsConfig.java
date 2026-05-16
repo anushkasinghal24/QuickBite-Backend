@@ -20,6 +20,7 @@ public class CorsConfig {
         CorsConfiguration corsConfig = new CorsConfiguration();
         corsConfig.setAllowedOriginPatterns(List.of(
                 frontendUrl,
+                "https://*.vercel.app",
                 "http://localhost:*",
                 "http://127.0.0.1:*"
         ));

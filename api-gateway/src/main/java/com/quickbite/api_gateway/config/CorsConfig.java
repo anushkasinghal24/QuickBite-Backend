@@ -36,9 +36,11 @@ public class CorsConfig {
         CorsConfiguration corsConfig = new CorsConfiguration();
 
         // Frontend origins allowed to call the API
-        // Allow the deployed Vercel frontend plus local dev origins.
+        // Allow the deployed Vercel frontend, any Vercel preview domain,
+        // plus local dev origins.
         corsConfig.setAllowedOriginPatterns(List.of(
                 frontendUrl,
+                "https://*.vercel.app",
                 "http://localhost:*",
                 "http://127.0.0.1:*"
         ));
